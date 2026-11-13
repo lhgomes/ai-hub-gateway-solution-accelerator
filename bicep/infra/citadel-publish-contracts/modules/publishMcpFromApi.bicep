@@ -29,6 +29,16 @@ param mcpSubscriptionRequired bool = true
 @description('Opt-in JWT-only enforcement using centrally generated contract fragments. Disables APIM subscription-key checks.')
 param entraOnly bool = false
 
+@description('For JWT-only MCP-to-source calls: Entra application ID URI of the source API (required in JWT-only mode).')
+param sourceManagedIdentityAudience string = ''
+
+@description('Optional APIM user-assigned Managed Identity client ID for the internal source API hop.')
+param sourceManagedIdentityClientId string = ''
+
+assert keylessSourceRequiresAudience = !entraOnly || !empty(sourceManagedIdentityAudience)
+assert keylessSourceCannotForwardSubscriptionKeys = !entraOnly || !forwardSubscriptionKeyToSource
+
+
 @description('Header name callers use to present the subscription (API) key. Accepts the LLM-style "api-key" or the APIM-native "Ocp-Apim-Subscription-Key".')
 @allowed([
   'api-key'
@@ -59,7 +69,8 @@ var defaultPolicyXml = loadTextContent('../policies/baseline-mcp-policy.xml')
 // subscription gate (standard subscription headers are stripped by APIM before that hop).
 var forwardKeySnippet = '        <set-header name="${sourceSubscriptionKeyHeaderName}" exists-action="override">\n            <value>@(context.Subscription?.Key ?? "")</value>\n        </set-header>\n'
 var baselineWithForward = replace(defaultPolicyXml, '    </inbound>', '${forwardKeySnippet}    </inbound>')
-var entraPolicyXml = replace(replace(defaultPolicyXml, '<include-fragment fragment-id="security-handler" />', '<include-fragment fragment-id="entra-contract-auth" />\n        <set-variable name="assetKind" value="tool" />\n        <include-fragment fragment-id="entra-contract-request-limits" />'), 'fragment-id="mcp-usage"', 'fragment-id="entra-mcp-usage"')
+var keylessSourceAuth = empty(sourceManagedIdentityClientId) ? '<authentication-managed-identity resource="${sourceManagedIdentityAudience}" />' : '<authentication-managed-identity resource="${sourceManagedIdentityAudience}" client-id="${sourceManagedIdentityClientId}" />'
+var entraPolicyXml = replace(replace(defaultPolicyXml, '<include-fragment fragment-id="security-handler" />', '<include-fragment fragment-id="entra-contract-auth" />\n        <set-variable name="assetKind" value="tool" />\n        <include-fragment fragment-id="entra-contract-request-limits" />\n        ${keylessSourceAuth}'), 'fragment-id="mcp-usage"', 'fragment-id="entra-mcp-usage"')
 var effectivePolicyXml = entraOnly ? entraPolicyXml : (!empty(mcpPolicyXml) ? mcpPolicyXml : (forwardSubscriptionKeyToSource ? baselineWithForward : defaultPolicyXml))
 
 // Query-string key name mirrors the header: the APIM-native header uses the 'subscription-key' query param,
