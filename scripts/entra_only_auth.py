@@ -97,7 +97,7 @@ def auth_fragment(config):
        failed-validation-httpcode="401" failed-validation-error-message="Invalid or missing gateway JWT">
     <openid-config url={expr(openid)} />
     <audiences><audience>{escape(config["audience"])}</audience></audiences>
-    <issuers><issuer>{escape(issuer)}</issuer></issuers>
+    <issuers><issuer>{escape(issuer)}</issuer><issuer>https://sts.windows.net/{escape(tenant)}/</issuer></issuers>
     <required-claims><claim name="tid" match="all"><value>{escape(tenant)}</value></claim></required-claims>
   </validate-jwt>
   <!-- oid identifies the managed-identity service principal. Never trust caller-supplied headers. -->
@@ -147,6 +147,10 @@ def rewrite_policy(api, content):
         raise ValueError(f"{api}: unexpected authentication insertion count")
     content = content.replace(auth, '<include-fragment fragment-id="entra-contract-auth" />')
     if api == "unified-ai-api":
+        # Validate identity before metadata reads or request processing.
+        content = content.replace('<include-fragment fragment-id="entra-contract-auth" />', '', 1)
+        content = content.replace('<inbound>\n        <base />', '<inbound>\n        <base />\n        <include-fragment fragment-id="entra-contract-auth" />', 1)
+    if api == "unified-ai-api":
         # With keyless API access there is no APIM context.Product; the registry is authoritative.
         content, count = re.subn(
             r'\s*<!-- Validate product context -->\s*<choose>.*?</choose>',
@@ -154,10 +158,10 @@ def rewrite_policy(api, content):
         )
         if count != 1:
             raise ValueError("Unified AI: product precheck not found")
-    if api == "universal-llm-api":
-        # Existing policy overwrites contract pool restriction with an empty (allow-all) variable.
-        content = content.replace('<set-variable name="allowedBackendPools" value="" />',
-                                  '<!-- allowedBackendPools is set by entra-contract-auth -->')
+    # All three upstream policies may overwrite this variable with an empty (allow-all) value.
+    # Retain only the authorization-derived grant.
+    content = content.replace('<set-variable name="allowedBackendPools" value="" />',
+                              '<!-- allowedBackendPools is set by entra-contract-auth -->')
     # Authorization must precede response ownership, then quota enforcement.
     owner = '<include-fragment fragment-id="responses-id-security" />'
     if content.count(owner) != 1:
