@@ -84,6 +84,8 @@ param apiCenter object = {
   operationNames?: [ string ]
   forwardSubscriptionKeyToSource?: bool    // opt-in: forward caller key to a subscription-protected source API (default false)
   sourceSubscriptionKeyHeaderName?: string // custom header the source API reads the forwarded key from (default 'x-mcp-sub-key')
+  sourceManagedIdentityAudience?: string // required for JWT-only MCP-from-API source hop
+  sourceManagedIdentityClientId?: string // optional gateway UAMI client ID for internal call
 
   // mcp-existing
   transportType?: 'streamable'
@@ -204,6 +206,8 @@ module mcpFromApi 'modules/publishMcpFromApi.bicep' = [for (asset, i) in publish
     subscriptionKeyHeaderName: asset.?subscriptionKeyHeaderName ?? 'api-key'
     forwardSubscriptionKeyToSource: asset.?forwardSubscriptionKeyToSource ?? false
     sourceSubscriptionKeyHeaderName: asset.?sourceSubscriptionKeyHeaderName ?? 'x-mcp-sub-key'
+    sourceManagedIdentityAudience: asset.?sourceManagedIdentityAudience ?? ''
+    sourceManagedIdentityClientId: asset.?sourceManagedIdentityClientId ?? managedIdentityClientId
     mcpPolicyXml: asset.?policyXml ?? ''
   }
   dependsOn: [
