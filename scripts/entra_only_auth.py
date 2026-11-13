@@ -21,6 +21,7 @@ API_FILES = {
     "unified-ai-api": "unified-ai-api-policy.xml",
 }
 PERIODS = {"Hourly", "Daily", "Weekly", "Monthly", "Yearly"}
+ASSET_KINDS = {"tool", "agent"}
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "bicep/infra/modules/apim/policies"
 
@@ -53,6 +54,9 @@ def validate(config):
         raise ValueError("An Entra tenant GUID is required")
     if not isinstance(config.get("audience"), str) or not config["audience"].startswith("api://"):
         raise ValueError("A gateway application ID URI (api://...) is required")
+    asset_kinds = config.get("assetKinds", {})
+    if not isinstance(asset_kinds, dict) or any(not isinstance(k, str) or not re.fullmatch(r"[a-zA-Z0-9_.-]+", k) or v not in ASSET_KINDS or k in API_FILES for k, v in asset_kinds.items()):
+        raise ValueError("assetKinds must map distinct published MCP/A2A API IDs to tool or agent")
     contracts = config.get("contracts")
     if not isinstance(contracts, list) or not contracts:
         raise ValueError("At least one contract is required; no anonymous fallback exists")
@@ -63,19 +67,33 @@ def validate(config):
         if not isinstance(cid, str) or not re.fullmatch(r"[a-zA-Z0-9_.-]{1,100}", cid) or cid in ids:
             raise ValueError("Contract IDs must be unique and nonempty")
         ids.add(cid)
-        for prop in ("callers", "apis", "allowedModels", "allowedBackendPools"):
+        for prop in ("callers", "apis"):
             if not isinstance(c.get(prop), list) or not c[prop] or any(not isinstance(x, str) or not x.strip() for x in c[prop]):
                 raise ValueError(f"{cid}: {prop} must contain explicit nonempty strings")
-        if any(x not in API_FILES for x in c["apis"]):
-            raise ValueError(f"{cid}: only the three verified inference APIs are supported")
+        if any(x not in API_FILES and x not in asset_kinds for x in c["apis"]):
+            raise ValueError(f"{cid}: every API must be a known inference API or a declared published asset")
+        has_llm = any(api in API_FILES for api in c["apis"])
+        has_tool = any(asset_kinds.get(api) in ASSET_KINDS for api in c["apis"])
+        for prop in ("allowedModels", "allowedBackendPools"):
+            if has_llm and (not isinstance(c.get(prop), list) or not c[prop] or
+                            any(not isinstance(x, str) or not x.strip() for x in c[prop])):
+                raise ValueError(f"{cid}: {prop} must contain explicit nonempty strings")
+        if has_tool:
+            for key in ("requestsPerMinute", "requestQuota", "quotaPeriodSeconds"):
+                if type(c.get(key)) is not int or c[key] <= 0:
+                    raise ValueError(f"{cid}: {key} must be a positive integer for MCP/A2A contracts")
+            if c["quotaPeriodSeconds"] < 300:
+                raise ValueError(f"{cid}: quotaPeriodSeconds must be at least 300")
+
         if any(not re.fullmatch(r"[0-9a-fA-F-]{36}", oid) for oid in c["callers"]):
             raise ValueError(f"{cid}: caller IDs must be service principal object GUIDs (oid), not app IDs")
-        for key in ("tokensPerMinute", "tokenQuota"):
-            if type(c.get(key)) is not int or c[key] <= 0:
-                raise ValueError(f"{cid}: {key} must be a positive integer")
-        if c.get("tokenQuotaPeriod") not in PERIODS:
-            raise ValueError(f"{cid}: invalid tokenQuotaPeriod")
-        if any("," in x or "|" in x for x in c["allowedModels"] + c["allowedBackendPools"]):
+        if has_llm:
+            for key in ("tokensPerMinute", "tokenQuota"):
+                if type(c.get(key)) is not int or c[key] <= 0:
+                    raise ValueError(f"{cid}: {key} must be a positive integer")
+            if c.get("tokenQuotaPeriod") not in PERIODS:
+                raise ValueError(f"{cid}: invalid tokenQuotaPeriod")
+        if any("," in x or "|" in x for x in c.get("allowedModels", []) + c.get("allowedBackendPools", [])):
             raise ValueError(f"{cid}: model/pool IDs cannot include comma or pipe")
         for oid in c["callers"]:
             for api in c["apis"]:
@@ -101,8 +119,8 @@ def choose_contracts(config):
         condition = f"@{{ var caller = context.Variables.GetValueOrDefault<string>(\"callerId\", \"\"); var api = context.Api.Id; return ({apps}) && ({apis}); }}"
         clauses.append(f"""<when condition={expr(condition)}>
   <set-variable name="contractId" value={expr(c["id"])} />
-  <set-variable name="allowedModels" value={expr(",".join(c["allowedModels"]))} />
-  <set-variable name="allowedBackendPools" value={expr(",".join(c["allowedBackendPools"]))} />
+  <set-variable name="allowedModels" value={expr(",".join(c.get("allowedModels", [])))} />
+  <set-variable name="allowedBackendPools" value={expr(",".join(c.get("allowedBackendPools", [])))} />
   <set-variable name="consumerId" value="@((string)context.Variables[&quot;callerId&quot;])" />
   <set-variable name="appId" value="@((string)context.Variables[&quot;callerId&quot;])" />
 </when>""")
@@ -175,6 +193,8 @@ def pool_authorization_fragment():
 def limits_fragment(config):
     clauses = []
     for c in config["contracts"]:
+        if not any(api in API_FILES for api in c["apis"]):
+            continue
         clause = f"""<when condition={expr('@(context.Variables.GetValueOrDefault<string>("contractId", "") == ' + json.dumps(c["id"]) + ')')}>
   <llm-token-limit counter-key="@((string)context.Variables[&quot;contractId&quot;])"
        tokens-per-minute="{c["tokensPerMinute"]}" token-quota="{c["tokenQuota"]}"
@@ -182,6 +202,36 @@ def limits_fragment(config):
 </when>"""
         clauses.append(clause)
     return "<fragment><choose>\n" + "\n".join(clauses) + "\n</choose></fragment>\n"
+
+
+def request_limits_fragment(config):
+    """Contract-wide request limits for MCP/A2A; no subscription context needed."""
+    clauses = []
+    for c in config["contracts"]:
+        if not any(api in config.get("assetKinds", {}) for api in c["apis"]):
+            continue
+        limit_key = '@(context.Variables.GetValueOrDefault<string>("contractId", "") + ":" + context.Api.Id)'
+        clauses.append(f"""<when condition={expr('@(context.Variables.GetValueOrDefault<string>("contractId", "") == ' + json.dumps(c["id"]) + ')')}>
+  <rate-limit-by-key counter-key={expr(limit_key)} calls="{c['requestsPerMinute']}" renewal-period="60" />
+  <quota-by-key counter-key={expr(limit_key)} calls="{c['requestQuota']}" renewal-period="{c['quotaPeriodSeconds']}" />
+</when>""")
+    return "<fragment><choose>\\n" + "\\n".join(clauses) + "\\n<otherwise><return-response><set-status code=\\\"403\\\" reason=\\\"Unrecognized contract\\\" /></return-response></otherwise></choose></fragment>\\n"
+
+
+def asset_usage_fragment(kind):
+    """Keep the current metrics schema while using normalized caller/contract."""
+    name = "McpRequests" if kind == "tool" else "A2ARequests"
+    namespace = "mcp-usage" if kind == "tool" else "a2a-usage"
+    return f"""<fragment>
+  <emit-metric name="{name}" value="1" namespace="{namespace}">
+    <dimension name="productName" value="@((string)context.Variables.GetValueOrDefault&lt;string&gt;(&quot;contractId&quot;, &quot;Unassigned&quot;))" />
+    <dimension name="deploymentName" value="@(context.Api?.Name?.ToString() ?? &quot;unknown&quot;)" />
+    <dimension name="backendId" value="@((string)context.Variables.GetValueOrDefault&lt;string&gt;(&quot;publishedBackendId&quot;, context.Api?.Name ?? &quot;NA&quot;))" />
+    <dimension name="appId" value="@((string)context.Variables.GetValueOrDefault&lt;string&gt;(&quot;callerId&quot;, &quot;Unassigned&quot;))" />
+    <dimension name="customDimension1" value="{kind}" />
+    <dimension name="customDimension2" value="@(context.Operation?.Name?.ToString() ?? &quot;NA&quot;)" />
+  </emit-metric>
+</fragment>"""
 
 
 def rewrite_policy(api, content):
@@ -267,6 +317,9 @@ def generate(config, output):
     generated = {
         "frag-entra-contract-auth.xml": auth_fragment(config),
         "frag-entra-contract-limits.xml": limits_fragment(config),
+        "frag-entra-contract-request-limits.xml": request_limits_fragment(config),
+        "frag-entra-mcp-usage.xml": asset_usage_fragment("tool"),
+        "frag-entra-a2a-usage.xml": asset_usage_fragment("agent"),
         "frag-entra-authorize-target-pool.xml": pool_authorization_fragment(),
         "frag-entra-responses-id-security.xml": response_fragment("frag-responses-id-security.xml"),
         "frag-entra-responses-id-cache-store.xml": response_fragment("frag-responses-id-cache-store.xml"),
