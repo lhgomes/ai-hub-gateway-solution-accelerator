@@ -1,0 +1,16 @@
+{
+  "tenantId": "REPLACE-WITH-ENTRA-TENANT-ID",
+  "audience": "api://REPLACE-WITH-GATEWAY-APP-ID",
+  "contracts": [
+    {
+      "id": "LLM-EXAMPLE-DEV",
+      "callers": ["REPLACE-WITH-MANAGED-IDENTITY-SERVICE-PRINCIPAL-OID"],
+      "apis": ["azure-openai-api", "universal-llm-api", "unified-ai-api"],
+      "allowedModels": ["gpt-4.1"],
+      "allowedBackendPools": ["REPLACE-WITH-POOL-ID"],
+      "tokensPerMinute": 1000,
+      "tokenQuota": 100000,
+      "tokenQuotaPeriod": "Monthly"
+    }
+  ]
+}
