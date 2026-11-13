@@ -27,6 +27,9 @@ RESOURCE_RE = re.compile(
 FRAGMENTS = {
     "entra-contract-auth": "frag-entra-contract-auth.xml",
     "entra-contract-limits": "frag-entra-contract-limits.xml",
+    "entra-contract-request-limits": "frag-entra-contract-request-limits.xml",
+    "entra-mcp-usage": "frag-entra-mcp-usage.xml",
+    "entra-a2a-usage": "frag-entra-a2a-usage.xml",
     "entra-authorize-target-pool": "frag-entra-authorize-target-pool.xml",
     "entra-responses-id-security": "frag-entra-responses-id-security.xml",
     "entra-responses-id-cache-store": "frag-entra-responses-id-cache-store.xml",
@@ -73,6 +76,8 @@ def deploy(apim_id, generated_dir, api_names, rest=az_rest):
                            "description": "Generated isolated JWT-only APIM policy"}
         })
     for api in api_names:
+        if api not in API_FILES:
+            continue  # Published MCP/A2A policies are deployed by the native publisher modules.
         policy = (generated_dir / f"api-{api}-policy.xml").read_text(encoding="utf-8")
         rest("PUT", base + "/apis/" + api + "/policies/policy?api-version=" + API_VERSION, {
             "properties": {"format": "rawxml", "value": policy}
@@ -99,7 +104,8 @@ def main():
     selected = sorted({api for c in config["contracts"] for api in c["apis"]})
     preflight(args.apim_resource_id, selected)
     deploy(args.apim_resource_id, args.output, selected)
-    print("Deployed JWT-only overlay. Validate APIM policy compilation and runtime tests before production.")
+    print("Deployed JWT-only fragments and inference overlays. Publish MCP/A2A assets with authMode=entra after this step.")
+    print("Validate APIM policy compilation and managed-identity runtime tests before production.")
 
 
 if __name__ == "__main__":
