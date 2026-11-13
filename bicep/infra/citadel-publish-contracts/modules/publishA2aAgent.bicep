@@ -51,6 +51,9 @@ param jsonRpcPath string = '/'
 @description('Whether a subscription (API) key is required to call the agent. When true, callers must present a valid subscription key in the configured header; when false the endpoint is anonymous at the gateway (client auth deferred to the phase-2 Access Contract).')
 param subscriptionRequired bool = false
 
+@description('Opt-in JWT-only contract authentication; uses generated keyless fragments.')
+param entraOnly bool = false
+
 @description('Header name callers use to present the subscription (API) key. Accepts the LLM-style "api-key" or the APIM-native "Ocp-Apim-Subscription-Key".')
 @allowed([
   'api-key'
@@ -84,7 +87,8 @@ var gatewayA2aUrl = '${apim.properties.gatewayUrl}/${agentPath}'
 var cardRewriteElement = '<choose><when condition="@(context.Response.Headers.GetValueOrDefault(&quot;Content-Type&quot;,&quot;&quot;).Contains(&quot;json&quot;))"><find-and-replace from="${jsonRpcBackendUrl}" to="${gatewayA2aUrl}" /></when></choose>'
 
 var defaultPolicyXml = replace(replace(loadTextContent('../policies/baseline-a2a-policy.xml'), '<!-- {backendAuth} -->', backendAuthElement), '<!-- {cardRewrite} -->', cardRewriteElement)
-var effectivePolicyXml = empty(a2aPolicyXml) ? defaultPolicyXml : a2aPolicyXml
+var entraPolicyXml = replace(replace(defaultPolicyXml, '<inbound>\\n        <base />', '<inbound>\\n        <base />\\n        <include-fragment fragment-id="entra-contract-auth" />\\n        <include-fragment fragment-id="entra-contract-request-limits" />'), 'fragment-id="a2a-usage"', 'fragment-id="entra-a2a-usage"')
+var effectivePolicyXml = entraOnly ? entraPolicyXml : (empty(a2aPolicyXml) ? defaultPolicyXml : a2aPolicyXml)
 var effectiveAgentId = empty(agentId) ? agentName : agentId
 
 // Query-string key name mirrors the header: APIM-native header uses the 'subscription-key' query param,
@@ -123,7 +127,7 @@ resource agent 'Microsoft.ApiManagement/service/apis@2025-09-01-preview' = {
       backendUrl: jsonRpcBackendUrl
       path: jsonRpcPath
     }
-    subscriptionRequired: subscriptionRequired
+    subscriptionRequired: entraOnly ? false : subscriptionRequired
     path: agentPath
     protocols: [
       'https'
