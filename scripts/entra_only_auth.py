@@ -145,6 +145,8 @@ def auth_fragment(config):
   </choose>
   <set-variable name="user-id" value="@((string)context.Variables[&quot;callerId&quot;])" />
   <set-variable name="subscription-name" value="@((string)context.Variables[&quot;contractId&quot;])" />
+  <!-- Do not forward a gateway-audience caller JWT to any backend. -->
+  <set-header name="Authorization" exists-action="delete" />
   <set-header name="api-key" exists-action="delete" />
   <set-header name="Ocp-Apim-Subscription-Key" exists-action="delete" />
 </fragment>
