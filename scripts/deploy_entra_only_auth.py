@@ -101,9 +101,12 @@ def main():
         return
     if not args.confirm_isolated_gateway or not args.apim_resource_id:
         p.error("--apply requires --confirm-isolated-gateway and --apim-resource-id")
-    selected = sorted({api for c in config["contracts"] for api in c["apis"]})
-    preflight(args.apim_resource_id, selected)
-    deploy(args.apim_resource_id, args.output, selected)
+    selected = sorted({api for contract in config["contracts"] for api in contract["apis"]})
+    inference = [api for api in selected if api in API_FILES]
+    # Published MCP/A2A assets are created by Citadel Publish Contracts AFTER the
+    # policy fragments have been installed; they may not exist at this stage.
+    preflight(args.apim_resource_id, inference)
+    deploy(args.apim_resource_id, args.output, inference)
     print("Deployed JWT-only fragments and inference overlays. Publish MCP/A2A assets with authMode=entra after this step.")
     print("Validate APIM policy compilation and managed-identity runtime tests before production.")
 
