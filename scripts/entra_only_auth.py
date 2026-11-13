@@ -37,7 +37,7 @@ def normalize_upstream_policy_xml(content):
         return match.group("prefix") + safe + match.group("suffix")
 
     pattern = re.compile(
-        r'(?P<prefix>\\b[\\w:-]+=")(?P<body>@[\\s\\S]*?)(?P<suffix>[})]"(?=\\s*(?:/?>|[a-zA-Z][\\w:-]*=)))'
+        r'(?P<prefix>\b[\w:-]+=")(?P<body>@[\s\S]*?)(?P<suffix>[})]"(?=\s*(?:/?>|[a-zA-Z][\w:-]*=)))'
     )
     return pattern.sub(fix, content)
 
