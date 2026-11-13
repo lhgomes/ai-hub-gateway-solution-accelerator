@@ -161,6 +161,8 @@ def auth_fragment(config):
       <return-response><set-status code="403" reason="Caller not granted access to this API" /></return-response>
     </otherwise>
   </choose>
+  <set-variable name="auth-type" value="jwt" />
+  <set-variable name="enableResponseHeaders" value="@(true)" />
   <set-variable name="user-id" value="@((string)context.Variables[&quot;callerId&quot;])" />
   <set-variable name="subscription-name" value="@((string)context.Variables[&quot;contractId&quot;])" />
   <!-- Do not forward a gateway-audience caller JWT to any backend. -->
@@ -275,6 +277,10 @@ def rewrite_policy(api, content):
                        '        <include-fragment fragment-id="entra-contract-limits" />', 1)
     content = content.replace('<include-fragment fragment-id="responses-id-cache-store" />',
                               '<include-fragment fragment-id="entra-responses-id-cache-store" />')
+    content = content.replace('<include-fragment fragment-id="validate-model-access" />',
+                              '<include-fragment fragment-id="entra-validate-model-access" />')
+    content = content.replace('<include-fragment fragment-id="raise-alert-events" />',
+                              '<include-fragment fragment-id="entra-raise-alert-events" />')
     content = content.replace('<include-fragment fragment-id="set-llm-usage" />',
                               '<include-fragment fragment-id="entra-set-llm-usage" />')
     # Every backend authentication call (initial and retry) is preceded by an
@@ -310,6 +316,16 @@ def response_fragment(name):
     return content
 
 
+def contract_telemetry_fragment(name):
+    """Retain existing alert / model-denial telemetry, keyed by resolved contract."""
+    source = (SOURCE / name).read_text(encoding="utf-8")
+    source = source.replace('context.Product?.Name?.ToString() ?? "Portal-Admin"',
+                            'context.Variables.GetValueOrDefault<string>("contractId", "Unassigned")')
+    source = normalize_upstream_policy_xml(source)
+    ET.fromstring(source)
+    return source
+
+
 def usage_fragment():
     content = (SOURCE / "frag-set-llm-usage.xml").read_text(encoding="utf-8")
     content = content.replace('context.Product?.Name?.ToString() ?? "Portal-Admin"',
@@ -334,6 +350,8 @@ def generate(config, output):
         "frag-entra-responses-id-security.xml": response_fragment("frag-responses-id-security.xml"),
         "frag-entra-responses-id-cache-store.xml": response_fragment("frag-responses-id-cache-store.xml"),
         "frag-entra-set-llm-usage.xml": usage_fragment(),
+        "frag-entra-validate-model-access.xml": contract_telemetry_fragment("frag-validate-model-access.xml"),
+        "frag-entra-raise-alert-events.xml": contract_telemetry_fragment("frag-raise-alert-events.xml"),
     }
     for api, filename in API_FILES.items():
         generated[f"api-{api}-policy.xml"] = rewrite_policy(api, (SOURCE / filename).read_text(encoding="utf-8"))
