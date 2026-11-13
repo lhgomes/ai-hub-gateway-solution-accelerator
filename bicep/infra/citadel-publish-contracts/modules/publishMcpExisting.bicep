@@ -26,6 +26,9 @@ param mcpTransportType string = 'streamable'
 @description('Whether a subscription key is required to reach the published MCP server')
 param mcpSubscriptionRequired bool = true
 
+@description('Opt-in JWT-only enforcement using centrally generated contract fragments. Disables APIM subscription-key checks.')
+param entraOnly bool = false
+
 @description('Header name callers use to present the subscription (API) key. Accepts the LLM-style "api-key" or the APIM-native "Ocp-Apim-Subscription-Key".')
 @allowed([
   'api-key'
@@ -45,7 +48,8 @@ param mcpPolicyXml string = ''
 // ------------------
 
 var defaultPolicyXml = loadTextContent('../policies/baseline-mcp-policy.xml')
-var effectivePolicyXml = empty(mcpPolicyXml) ? defaultPolicyXml : mcpPolicyXml
+var entraPolicyXml = replace(replace(defaultPolicyXml, '<include-fragment fragment-id="security-handler" />', '<include-fragment fragment-id="entra-contract-auth" />\\n        <include-fragment fragment-id="entra-contract-request-limits" />'), 'fragment-id="mcp-usage"', 'fragment-id="entra-mcp-usage"')
+var effectivePolicyXml = entraOnly ? entraPolicyXml : (empty(mcpPolicyXml) ? defaultPolicyXml : mcpPolicyXml)
 
 // Query-string key name mirrors the header: the APIM-native header uses the 'subscription-key' query param,
 // the LLM-style 'api-key' header uses an 'api-key' query param.
@@ -66,7 +70,7 @@ resource mcp 'Microsoft.ApiManagement/service/apis@2024-06-01-preview' = {
     type: 'mcp'
     displayName: mcpDisplayName
     description: mcpDescription
-    subscriptionRequired: mcpSubscriptionRequired
+    subscriptionRequired: entraOnly ? false : mcpSubscriptionRequired
     path: mcpPath
     protocols: mcpProtocols
     subscriptionKeyParameterNames: {
