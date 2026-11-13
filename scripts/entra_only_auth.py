@@ -44,7 +44,7 @@ def normalize_upstream_policy_xml(content):
     # They are not XML markup and must be escaped as text.
     def fix_message(match):
         return match.group(1) + escape(html.unescape(match.group(2))) + match.group(3)
-    return re.sub(r'(<message>)([\\s\\S]*?)(</message>)', fix_message, content)
+    return re.sub(r'(<message>)([\s\S]*?)(</message>)', fix_message, content)
 
 
 def validate(config):
