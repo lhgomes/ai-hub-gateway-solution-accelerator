@@ -8,6 +8,8 @@ on:
       - "scripts/entra_only_auth.py"
       - "validation/tests/test_entra_only_auth.py"
       - "bicep/infra/entra-only-auth/**"
+      - "bicep/infra/citadel-publish-contracts/**"
+      - "bicep/infra/citadel-access-contracts/modules/foundryConnection.bicep"
       - ".github/workflows/entra-only-auth.yml"
   pull_request:
     paths:
@@ -26,5 +28,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Validate isolated Entra policies and fail-closed grants
+      - name: Validate Entra policies and fail-closed grants
         run: python -m unittest discover -s validation/tests -p "test_entra_only_auth.py" -v
+      - name: Compile MCP/A2A publisher and keyless Foundry Bicep
+        run: |
+          az bicep build --file bicep/infra/citadel-publish-contracts/main.bicep --stdout >/dev/null
+          az bicep build --file bicep/infra/entra-only-auth/foundry-connection.bicep --stdout >/dev/null
