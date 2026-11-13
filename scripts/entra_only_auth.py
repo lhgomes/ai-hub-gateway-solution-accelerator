@@ -151,6 +151,25 @@ def auth_fragment(config):
 """
 
 
+def pool_authorization_fragment():
+    """Fail closed even on explicit API-type routes and retry / alias fallback."""
+    return """<fragment>
+      <choose>
+        <when condition="@{
+          var selected = context.Variables.GetValueOrDefault&lt;string&gt;(&quot;targetBackendPool&quot;, &quot;&quot;);
+          var allowed = context.Variables.GetValueOrDefault&lt;string&gt;(&quot;allowedBackendPools&quot;, &quot;&quot;);
+          if (string.IsNullOrWhiteSpace(selected) || string.IsNullOrWhiteSpace(allowed)) return true;
+          return !allowed.Split(',').Any(p => p.Trim().Equals(selected, StringComparison.OrdinalIgnoreCase));
+        }">
+          <return-response>
+            <set-status code="403" reason="Backend pool not granted by Access Contract" />
+          </return-response>
+        </when>
+      </choose>
+    </fragment>
+    """
+
+
 def limits_fragment(config):
     clauses = []
     for c in config["contracts"]:
@@ -196,6 +215,14 @@ def rewrite_policy(api, content):
                               '<include-fragment fragment-id="entra-responses-id-cache-store" />')
     content = content.replace('<include-fragment fragment-id="set-llm-usage" />',
                               '<include-fragment fragment-id="entra-set-llm-usage" />')
+    # Every backend authentication call (initial and retry) is preceded by an
+    # explicit pool-grant check. Never rely solely on the router to enforce RBAC.
+    backend_auth = '<include-fragment fragment-id="set-backend-authorization" />'
+    if backend_auth not in content:
+        raise ValueError(f"{api}: backend authorization call not found")
+    content = content.replace(backend_auth,
+                              '<include-fragment fragment-id="entra-authorize-target-pool" />\\n'
+                              '        ' + backend_auth)
     if '<include-fragment fragment-id="entra-contract-auth" />' not in content:
         raise ValueError("JWT authentication was not installed")
     content = normalize_upstream_policy_xml(content)
@@ -238,6 +265,7 @@ def generate(config, output):
     generated = {
         "frag-entra-contract-auth.xml": auth_fragment(config),
         "frag-entra-contract-limits.xml": limits_fragment(config),
+        "frag-entra-authorize-target-pool.xml": pool_authorization_fragment(),
         "frag-entra-responses-id-security.xml": response_fragment("frag-responses-id-security.xml"),
         "frag-entra-responses-id-cache-store.xml": response_fragment("frag-responses-id-cache-store.xml"),
         "frag-entra-set-llm-usage.xml": usage_fragment(),
