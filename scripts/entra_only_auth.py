@@ -211,7 +211,7 @@ def request_limits_fragment(config):
         if not any(api in config.get("assetKinds", {}) for api in contract["apis"]):
             continue
         condition = '@(context.Variables.GetValueOrDefault<string>("contractId", "") == ' + json.dumps(contract["id"]) + ')'
-        counter = '@(context.Variables.GetValueOrDefault<string>("contractId", "") + ":" + context.Api.Id)'
+        counter = '@(context.Variables.GetValueOrDefault<string>("contractId", "") + ":" + context.Variables.GetValueOrDefault<string>("assetKind", ""))'
         clauses.append(
             '<when condition=' + expr(condition) + '>'
             + '<rate-limit-by-key counter-key=' + expr(counter)
