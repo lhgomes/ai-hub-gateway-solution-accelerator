@@ -34,7 +34,7 @@ class EntraOnlyGenerationTests(unittest.TestCase):
     def test_generation_and_fragment_integrity(self):
         with tempfile.TemporaryDirectory() as d:
             paths = auth.generate(sample(), Path(d))
-            self.assertEqual(len(paths), 8)
+            self.assertEqual(len(paths), 9)
             for name in paths:
                 ET.parse(Path(d) / name)
             fragment = (Path(d) / "frag-entra-contract-auth.xml").read_text()
@@ -46,6 +46,7 @@ class EntraOnlyGenerationTests(unittest.TestCase):
                 policy = (Path(d) / f"api-{api}-policy.xml").read_text()
                 self.assertIn('fragment-id="entra-contract-auth"', policy)
                 self.assertIn('fragment-id="entra-contract-limits"', policy)
+                self.assertIn('fragment-id="entra-authorize-target-pool"', policy)
                 self.assertIn('fragment-id="entra-responses-id-security"', policy)
                 self.assertNotIn('fragment-id="security-handler"', policy)
                 self.assertNotIn('<set-variable name="allowedBackendPools" value=""', policy)
