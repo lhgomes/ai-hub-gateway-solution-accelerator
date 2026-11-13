@@ -39,7 +39,12 @@ def normalize_upstream_policy_xml(content):
     pattern = re.compile(
         r'(?P<prefix>\b[\w:-]+=")(?P<body>@[\s\S]*?)(?P<suffix>[})]"(?=\s*(?:/?>|[a-zA-Z][\w:-]*=)))'
     )
-    return pattern.sub(fix, content)
+    content = pattern.sub(fix, content)
+    # Trace messages contain C# generics in XML text (e.g. GetValueOrDefault<string>).
+    # They are not XML markup and must be escaped as text.
+    def fix_message(match):
+        return match.group(1) + escape(html.unescape(match.group(2))) + match.group(3)
+    return re.sub(r'(<message>)([\\s\\S]*?)(</message>)', fix_message, content)
 
 
 def validate(config):
