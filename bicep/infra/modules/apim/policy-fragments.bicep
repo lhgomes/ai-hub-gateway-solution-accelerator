@@ -11,6 +11,41 @@
 @description('The name of the API Management service')
 param apimServiceName string
 
+@description('Complete authorized JWT Access Contracts; used for per-contract quotas in the existing policy pipeline.')
+param gatewayAccessContracts array = []
+
+@description('Whether this deployment owns the JWT contract resolver and quota fragments. Set false when updating unrelated fragments on an existing gateway.')
+param deployContractFragments bool = true
+
+// Resolve the caller+API to exactly one Access Contract. This is compiled into
+// an APIM policy fragment rather than a named value, avoiding its 4096-char limit.
+var jwtGrantChecks = [for contract in gatewayAccessContracts: format(
+  'if (JArray.Parse(Encoding.UTF8.GetString(Convert.FromBase64String(&quot;{0}&quot;))).Any(x => string.Equals((string)x, oid, StringComparison.OrdinalIgnoreCase)) &amp;&amp; JArray.Parse(Encoding.UTF8.GetString(Convert.FromBase64String(&quot;{1}&quot;))).Any(x => string.Equals((string)x, api, StringComparison.OrdinalIgnoreCase))) matches.Add(Encoding.UTF8.GetString(Convert.FromBase64String(&quot;{2}&quot;)));',
+  base64(string(contract.callers)), base64(string(contract.apis)), base64(contract.id)
+)]
+var jwtGrantSettings = [for contract in gatewayAccessContracts: format(
+  '<when condition="@(context.Variables.GetValueOrDefault&lt;string&gt;(&quot;contractId&quot;,&quot;&quot;) == Encoding.UTF8.GetString(Convert.FromBase64String(&quot;{0}&quot;)))"><set-variable name="allowedModels" value="@(Encoding.UTF8.GetString(Convert.FromBase64String(&quot;{1}&quot;)))" /><set-variable name="allowedBackendPools" value="@(Encoding.UTF8.GetString(Convert.FromBase64String(&quot;{2}&quot;)))" /></when>',
+  base64(contract.id), base64(join(contract.?allowedModels ?? [], ',')), base64(join(contract.?allowedBackendPools ?? [], ','))
+)]
+var jwtContractResolutionXml = '<fragment><choose><when condition="@(&quot;{{Gateway-Auth-Mode}}&quot; == &quot;entra&quot;)"><set-variable name="contractId" value="@{ var oid = context.Variables.GetValueOrDefault&lt;string&gt;(&quot;callerOid&quot;, &quot;&quot;); var api = (context.Api.Id ?? &quot;&quot;).ToLowerInvariant(); var matches = new JArray(); ${join(jwtGrantChecks, '')} return matches.Count == 1 ? (string)matches[0] : &quot;&quot;; }" /><choose><when condition="@(string.IsNullOrEmpty(context.Variables.GetValueOrDefault&lt;string&gt;(&quot;contractId&quot;, &quot;&quot;)))"><return-response><set-status code="403" reason="No unique Access Contract grant" /></return-response></when></choose><choose>${join(jwtGrantSettings, '')}</choose><set-variable name="subscription-name" value="@((string)context.Variables[&quot;contractId&quot;])" /></when></choose></fragment>'
+
+// Materialize each contract's static LLM token rate at deployment time: the TPM
+// attribute is not dynamically expression-backed in APIM. No runtime registry
+// duplication is required; the auth fragment resolves the same contract ID.
+var quotaLlmCases = [for contract in gatewayAccessContracts: format(
+  '<when condition="@(context.Variables.GetValueOrDefault&lt;string&gt;(&quot;contractId&quot;,&quot;&quot;) == Encoding.UTF8.GetString(Convert.FromBase64String(&quot;{0}&quot;)) &amp;&amp; context.Variables.GetValueOrDefault&lt;string&gt;(&quot;assetKind&quot;,&quot;llm&quot;) == &quot;llm&quot;)"><llm-token-limit counter-key="@((string)context.Variables[&quot;contractId&quot;])" tokens-per-minute="{1}" token-quota="{2}" token-quota-period="{3}" estimate-prompt-tokens="false" /></when>',
+  base64(contract.id), int(contract.?tokensPerMinute ?? 1000), int(contract.?tokenQuota ?? 100000),
+  contains(['Hourly','Daily','Weekly','Monthly','Yearly'], contract.?tokenQuotaPeriod ?? 'Monthly') ? contract.?tokenQuotaPeriod ?? 'Monthly' : 'INVALID'
+)]
+var quotaRequestCases = [for contract in gatewayAccessContracts: format(
+  '<when condition="@(context.Variables.GetValueOrDefault&lt;string&gt;(&quot;contractId&quot;,&quot;&quot;) == Encoding.UTF8.GetString(Convert.FromBase64String(&quot;{0}&quot;)) &amp;&amp; context.Variables.GetValueOrDefault&lt;string&gt;(&quot;assetKind&quot;,&quot;llm&quot;) != &quot;llm&quot;)"><rate-limit-by-key counter-key="@(context.Variables.GetValueOrDefault&lt;string&gt;(&quot;contractId&quot;,&quot;&quot;) + &quot;:&quot; + context.Variables.GetValueOrDefault&lt;string&gt;(&quot;assetKind&quot;,&quot;&quot;))" calls="{1}" renewal-period="60" /><quota-by-key counter-key="@(context.Variables.GetValueOrDefault&lt;string&gt;(&quot;contractId&quot;,&quot;&quot;) + &quot;:&quot; + context.Variables.GetValueOrDefault&lt;string&gt;(&quot;assetKind&quot;,&quot;&quot;))" calls="{2}" renewal-period="{3}" /></when>',
+  base64(contract.id), int(contract.?requestsPerMinute ?? 60), int(contract.?requestQuota ?? 10000), int(contract.?quotaPeriodSeconds ?? 2592000)
+)]
+var jwtQuotaCases = join(concat(quotaLlmCases, quotaRequestCases), '')
+var jwtQuotaPolicy = '<fragment><choose><when condition="@(&quot;{{Gateway-Auth-Mode}}&quot; != &quot;entra&quot;)"></when>${jwtQuotaCases}<otherwise><return-response><set-status code="403" reason="No quota defined for contract" /></return-response></otherwise></choose></fragment>'
+
+
+
 @description('Enable PII Anonymization features')
 param enablePIIAnonymization bool = true
 
@@ -28,6 +63,26 @@ param enableUnifiedAiApi bool = true
 
 resource apimService 'Microsoft.ApiManagement/service@2022-08-01' existing = {
   name: apimServiceName
+}
+
+resource resolveAccessContractFragment 'Microsoft.ApiManagement/service/policyFragments@2024-06-01-preview' = if (deployContractFragments) {
+  name: 'resolve-access-contract'
+  parent: apimService
+  properties: {
+    description: 'Resolve JWT workload object ID and API into exactly one authorized Access Contract'
+    format: 'rawxml'
+    value: jwtContractResolutionXml
+  }
+}
+
+resource jwtContractQuotaFragment 'Microsoft.ApiManagement/service/policyFragments@2024-06-01-preview' = if (deployContractFragments) {
+  name: 'enforce-contract-quota'
+  parent: apimService
+  properties: {
+    description: 'Enforce quota resolved from the single JWT Access Contract registry'
+    format: 'rawxml'
+    value: jwtQuotaPolicy
+  }
 }
 
 resource aiUsagePolicyFragment 'Microsoft.ApiManagement/service/policyFragments@2022-08-01' = {

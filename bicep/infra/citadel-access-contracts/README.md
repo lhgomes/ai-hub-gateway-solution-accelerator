@@ -1,5 +1,68 @@
 # 📜 Citadel Access Contracts - Use-case onboarding
 
+
+## Entra ID-only authentication for net-new gateways
+
+For a new deployment, the gateway uses **one native authentication and Access Contract pipeline**. Set `entraAuth: true` (the default) when deploying `bicep/infra/main.bicep`, and provide the **complete desired state** of `gatewayAccessContracts` in the same `.bicepparam` file.
+
+The gateway validates a Managed Identity or service-principal JWT for the configured API audience, resolves exactly one contract from the validated tenant + service principal object ID (`oid`) and APIM API resource ID, and then applies the existing model, backend-pool, LLM token quota, MCP/A2A request quota, usage metric, and Responses ownership policies. The caller's gateway-audience bearer token is removed before the gateway uses its own downstream credentials.
+
+For example, add the following to the gateway's main `.bicepparam`:
+
+```bicep
+param gatewayAccessContracts = [
+  {
+    id: 'LLM-HR-DEV'
+    callers: [
+      '11111111-2222-3333-4444-555555555555' // managed identity SERVICE PRINCIPAL OBJECT ID, not client ID
+    ]
+    apis: [
+      'universal-llm-api'
+      'azure-openai-api'
+      'unified-ai-api'
+      'weather-tool'
+    ]
+    allowedModels: [
+      'gpt-4.1'
+    ]
+    allowedBackendPools: [
+      'foundry-pool'
+    ]
+    tokensPerMinute: 1000
+    tokenQuota: 100000
+    tokenQuotaPeriod: 'Monthly'
+    requestsPerMinute: 60
+    requestQuota: 10000
+    quotaPeriodSeconds: 2592000
+  }
+]
+```
+
+- **One source of truth:** the root gateway `gatewayAccessContracts` array defines all active workload/API grants and quotas. It compiles into shared APIM policy fragments; there is no external contract-registry service, separate JSON file, or size-limited APIM named value. Redeploy the full desired state when adding, revoking, or modifying a grant. The existing use-case `services` configuration remains responsible for endpoint naming, optional Key Vault endpoint references, and Foundry connection creation.
+- **Fail closed:** callers with absent/invalid JWTs receive 401; callers with zero or multiple matching grants receive 403. Do not grant one identity/API combination under multiple contracts. The `apis` list uses APIM API resource names, and `allowedBackendPools` uses the exact pool identifiers defined in the backend contract.
+- **Use-case onboarding:** `bicep/infra/citadel-access-contracts/main.bicep` now defaults to `authMode: 'entra'`. In this mode it does not create APIM Products, subscriptions, or key secrets. `authMode: 'subscription'` retains the original contract provisioning path for deliberately maintained legacy deployments.
+- **Foundry connections:** with `useTargetFoundry: true`, supply `gatewayAudience` matching the root gateway's `entraAudience` (normally `api://<gateway-app-id>`). The existing Foundry module uses `ProjectManagedIdentity` and does **not** inject an `api-key` header. Add the Foundry project's managed-identity service principal object ID to the appropriate root contract grant.
+- **Publishing MCP/A2A:** the normal Citadel Publish Contract defaults to `authMode: 'entra'`; configure API IDs in the same gateway registry. For `mcp-from-api`, configure the protected source API's `sourceManagedIdentityAudience`, and authorize the gateway's Managed Identity at that source. Missing source audience fails closed. Custom per-asset policies are not applied in Entra mode until they can be safely composed with mandatory authentication and governance.
+- **Migration:** existing subscription keys and Product policies are preserved only when `authMode: 'subscription'`. Do not switch a running gateway without a migration/rollback plan; responses and quota counters use new identity keys. Entra grants are enforced centrally, not at backend Azure RBAC: downstream model services see the gateway Managed Identity.
+
+### Compatibility and security boundaries
+
+The default Entra mode **removes the APIM subscription-key requirement**, but it does not preserve every Product-related feature automatically. Product catalog entries, Product-level custom policy XML, Product-scope analytics and Product-specific approval workflows must be reviewed and migrated explicitly. For any deployment depending on those capabilities, use `authMode: 'subscription'` until its controls have been mapped and tested. Entra mode does **not** execute arbitrary legacy `services[].policyXml` Product policies.
+
+The APIM gateway upgrade workflow defaults to `authMode: 'preserve'` and will not overwrite authentication-sensitive APIs, JWT contract fragments, or token settings without an explicitly selected mode. The LLM backend onboarding workflow also reuses the canonical gateway policy fragments instead of stale copies. Existing upgrade automation must explicitly select an authentication mode when intending to update those resources.
+
+The secondary AI Search, Document Intelligence, Realtime and generic inference API policies now invoke the shared authentication, contract authorization and request-based quota fragments before backend Managed Identity acquisition. These non-token APIs share a contract-level `service` quota key, separate from MCP `tool` and A2A `agent` keys. The Realtime API still contains upstream placeholder backend routes, and live WebSocket behavior is unverified.
+
+The existing ingestion field names are retained; the meaning of `productName` becomes logical Access Contract ID and `appId` becomes normalized caller identity. Dashboard consumers that join actual APIM Product IDs must be migrated.
+
+See [AUTH_COMPATIBILITY_AUDIT.md](./AUTH_COMPATIBILITY_AUDIT.md) for the control-by-control impact, known gaps, and required Azure acceptance tests.
+
+### Validation before production
+
+GitHub Actions compiles the existing gateway, Access Contract, and Publish Contract Bicep modules and checks policy integration invariants. **This does not compile policies inside an actual APIM gateway.** Before production deployment, run positive/negative Managed Identity JWT tests (including v1/v2 issuer and incorrect audience), verify allowed/blocked models and backend pools including retries, shared quotas, MCP streaming/A2A calls, Foundry keyless connection runtime, Responses ownership, monitoring, and contract revocation. Review policy changes and grant entries as security-sensitive configuration.
+
+---
+
 ## Overview
 
 Automate the onboarding of AI use cases to your APIM-based AI Gateway with a streamlined, infrastructure-as-code approach using **Bicep parameter files** (`.bicepparam`).

@@ -9,6 +9,9 @@
 //    PARAMETERS
 // ------------------
 
+@allowed(['entra', 'subscription'])
+param authMode string = 'subscription'
+
 param apimServiceName string
 param appInsightsLoggerName string = 'appinsights-logger'
 
@@ -46,6 +49,12 @@ param forwardSubscriptionKeyToSource bool = false
 @description('Custom (non-standard) header the source API reads its subscription key from when forwardSubscriptionKeyToSource is true. Must NOT be a standard subscription header (api-key / Ocp-Apim-Subscription-Key) — APIM strips those before the backend hop, so they would not survive.')
 param sourceSubscriptionKeyHeaderName string = 'x-mcp-sub-key'
 
+@description('Entra audience of the protected MCP source API; required for keyless source calls')
+param sourceManagedIdentityAudience string = ''
+
+@description('Optional APIM managed identity client ID for the internal MCP source call')
+param sourceManagedIdentityClientId string = ''
+
 // ------------------
 //    VARIABLES
 // ------------------
@@ -56,7 +65,13 @@ var defaultPolicyXml = loadTextContent('../policies/baseline-mcp-policy.xml')
 // subscription gate (standard subscription headers are stripped by APIM before that hop).
 var forwardKeySnippet = '        <set-header name="${sourceSubscriptionKeyHeaderName}" exists-action="override">\n            <value>@(context.Subscription?.Key ?? "")</value>\n        </set-header>\n'
 var baselineWithForward = replace(defaultPolicyXml, '    </inbound>', '${forwardKeySnippet}    </inbound>')
-var effectivePolicyXml = !empty(mcpPolicyXml) ? mcpPolicyXml : (forwardSubscriptionKeyToSource ? baselineWithForward : defaultPolicyXml)
+var sourceTokenPolicy = empty(sourceManagedIdentityAudience)
+  ? '<return-response><set-status code="503" reason="Source API Managed Identity audience missing" /></return-response>'
+  : (empty(sourceManagedIdentityClientId)
+      ? '<authentication-managed-identity resource="${sourceManagedIdentityAudience}" />'
+      : '<authentication-managed-identity resource="${sourceManagedIdentityAudience}" client-id="${sourceManagedIdentityClientId}" />')
+var keylessPolicyXml = replace(defaultPolicyXml, '    </inbound>', '        ${sourceTokenPolicy}\n    </inbound>')
+var effectivePolicyXml = authMode == 'entra' ? keylessPolicyXml : (!empty(mcpPolicyXml) ? mcpPolicyXml : (forwardSubscriptionKeyToSource ? baselineWithForward : defaultPolicyXml))
 
 // Query-string key name mirrors the header: the APIM-native header uses the 'subscription-key' query param,
 // the LLM-style 'api-key' header uses an 'api-key' query param.
@@ -87,7 +102,7 @@ resource mcp 'Microsoft.ApiManagement/service/apis@2024-06-01-preview' = {
     type: 'mcp'
     displayName: mcpDisplayName
     description: mcpDescription
-    subscriptionRequired: mcpSubscriptionRequired
+    subscriptionRequired: authMode == 'subscription' ? mcpSubscriptionRequired : false
     path: mcpPath
     protocols: [
       'https'

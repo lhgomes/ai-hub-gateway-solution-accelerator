@@ -135,7 +135,7 @@
             <!-- 3. Look up cached owner (only when we actually have a response_id to validate). -->
             <choose>
                 <when condition="@(!string.IsNullOrEmpty(context.Variables.GetValueOrDefault<string>("responseId", string.Empty)))">
-                    <cache-lookup-value key="@("response-id-" + (string)context.Variables["responseId"])" variable-name="cachedResponseOwner" caching-type="internal" />
+                    <cache-lookup-value key="@((context.Variables.GetValueOrDefault<string>("auth-type", "") == "jwt" ? "response-id-jwt-" : "response-id-") + (string)context.Variables["responseId"])" variable-name="cachedResponseOwner" caching-type="internal" />
 
                     <!-- 3a. Ownership enforcement: cached subscription and product must match the caller. -->
                     <choose>
@@ -145,8 +145,8 @@
                             var parts = cached.Split('|');
                             var cachedSubId = parts.Length > 0 ? parts[0] : string.Empty;
                             var cachedProductId = parts.Length >= 4 ? parts[1] : string.Empty;
-                            var currentSubId = context.Subscription?.Id ?? string.Empty;
-                            var currentProductId = context.Product?.Id;
+                            var currentSubId = context.Variables.GetValueOrDefault<string>("callerId", context.Subscription?.Id ?? string.Empty);
+                            var currentProductId = context.Variables.GetValueOrDefault<string>("contractId", context.Product?.Id);
                             if (string.IsNullOrEmpty(currentProductId)) { currentProductId = "NA"; }
                             return string.IsNullOrEmpty(cachedSubId)
                                 || string.IsNullOrEmpty(cachedProductId)
@@ -154,7 +154,7 @@
                                 || !cachedProductId.Equals(currentProductId, StringComparison.Ordinal);
                         }">
                             <trace source="Responses-API-Security" severity="error">
-                                <message>@($"Response-id ownership mismatch. responseId={context.Variables.GetValueOrDefault<string>("responseId", string.Empty)} requestSub={context.Subscription?.Id ?? string.Empty} requestProduct={context.Product?.Id ?? "NA"}")</message>
+                                <message>@($"Response-id ownership mismatch. responseId={context.Variables.GetValueOrDefault<string>("responseId", string.Empty)} requestSub={context.Variables.GetValueOrDefault<string>("callerId", context.Subscription?.Id ?? string.Empty)} requestProduct={context.Variables.GetValueOrDefault<string>("contractId", context.Product?.Id ?? "NA")}")</message>
                             </trace>
                             <return-response>
                                 <set-status code="403" reason="Forbidden" />

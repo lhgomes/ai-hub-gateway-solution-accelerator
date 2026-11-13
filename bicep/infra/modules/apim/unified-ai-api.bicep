@@ -23,6 +23,9 @@ param apimLoggerId string = ''
 @description('Whether to enable the Unified AI API (feature flag)')
 param enabled bool = true
 
+@description('Gateway authentication: Entra mode does not require an APIM subscription or Product.')
+param entraAuth bool = false
+
 @description('Azure Monitor diagnostic log settings')
 param azureMonitorLogSettings object = {
   frontend: {
@@ -66,7 +69,7 @@ resource unifiedAiApi 'Microsoft.ApiManagement/service/apis@2024-06-01-preview' 
       header: 'api-key'
       query: 'api-key'
     }
-    subscriptionRequired: true
+    subscriptionRequired: !entraAuth
     type: 'http'
     value: string(loadJsonContent('./unified-ai-api/UnifiedAIWildcard.json'))
   }
@@ -83,7 +86,7 @@ resource unifiedAiApiPolicy 'Microsoft.ApiManagement/service/apis/policies@2024-
 }
 
 // APIM Product for Unified AI API (subscription-based, API Key auth)
-resource unifiedAiProduct 'Microsoft.ApiManagement/service/products@2024-06-01-preview' = if (enabled) {
+resource unifiedAiProduct 'Microsoft.ApiManagement/service/products@2024-06-01-preview' = if (enabled && !entraAuth) {
   name: 'unified-ai-product'
   parent: apimService
   properties: {
@@ -102,7 +105,7 @@ resource unifiedAiProduct 'Microsoft.ApiManagement/service/products@2024-06-01-p
 // this product/API association before the 'unified-ai-api' API exists (since the product can
 // be created independently), causing intermittent deployment failures. The explicit dependsOn
 // guarantees the API is provisioned first.
-resource unifiedAiProductApi 'Microsoft.ApiManagement/service/products/apis@2024-06-01-preview' = if (enabled) {
+resource unifiedAiProductApi 'Microsoft.ApiManagement/service/products/apis@2024-06-01-preview' = if (enabled && !entraAuth) {
   name: 'unified-ai-api'
   parent: unifiedAiProduct
   dependsOn: [
@@ -111,7 +114,7 @@ resource unifiedAiProductApi 'Microsoft.ApiManagement/service/products/apis@2024
 }
 
 // Product policy
-resource unifiedAiProductPolicy 'Microsoft.ApiManagement/service/products/policies@2024-06-01-preview' = if (enabled) {
+resource unifiedAiProductPolicy 'Microsoft.ApiManagement/service/products/policies@2024-06-01-preview' = if (enabled && !entraAuth) {
   name: 'policy'
   parent: unifiedAiProduct
   properties: {

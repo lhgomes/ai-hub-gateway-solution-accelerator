@@ -1,5 +1,13 @@
 targetScope = 'subscription'
 
+@allowed(['entra', 'subscription'])
+@description('Entra (default) provisions keyless Access Contracts. Subscription preserves legacy products and keys.')
+param authMode string = 'entra'
+
+@description('Gateway Entra application ID URI. Required when authMode is entra and Foundry connections are enabled. Must match the JWT gateway audience.')
+param gatewayAudience string = ''
+
+
 @description('APIM resource coordinates')
 param apim object
 
@@ -67,7 +75,7 @@ param foundryConfig object = {
   authType: 'ProjectManagedIdentity'
   // Audience the project managed identity requests a token for (must match the JWT audience the
   // access contract product policy validates). Only used when authType is ProjectManagedIdentity.
-  managedIdentityAudience: 'https://cognitiveservices.azure.com'
+  managedIdentityAudience: ''
   // Whether deployment name is in URL path (true) or request body (false)
   deploymentInPath: 'false'
   // Share connection to all project users
@@ -145,7 +153,7 @@ var knownLlmApis = ['universal-llm-api', 'azure-openai-api', 'unified-ai-api']
 var serviceSecretPlans = [for (s, i) in services: {
   serviceIndex: i
   code: s.code
-  keySecretName: kvName(s.apiKeySecretName)
+  keySecretName: kvName(s.?apiKeySecretName ?? '')
   endpoints: concat(
     // Legacy single endpoint (additive, backward compatible) -> first granted API path.
     (contains(s, 'endpointSecretName') && !empty(s.endpointSecretName)) ? [
@@ -177,7 +185,7 @@ var serviceSecretPlans = [for (s, i) in services: {
 
 // Flatten the plans into one entry per Key Vault secret (shared key + each endpoint) for the primary Key Vault.
 var primaryKvSecretItems = flatten(map(serviceSecretPlans, plan => concat(
-  [ { serviceIndex: plan.serviceIndex, isKey: true, secretName: plan.keySecretName, apiIndex: 0 } ],
+  (authMode == 'subscription' ? [ { serviceIndex: plan.serviceIndex, isKey: true, secretName: plan.keySecretName, apiIndex: 0 } ] : []),
   map(plan.endpoints, ep => { serviceIndex: plan.serviceIndex, isKey: false, secretName: ep.secretName, apiIndex: ep.apiIndex })
 )))
 
@@ -190,6 +198,8 @@ resource apimSvc 'Microsoft.ApiManagement/service@2024-05-01' existing = {
   scope: apimRg
   name: apim.name
 }
+
+
 
 // Effective endpoint base used for Key Vault secrets and Foundry connections.
 // When a global gateway URL is provided it is used for ALL instances (primary + additional);
@@ -218,6 +228,7 @@ module onboard 'modules/apimOnboardService.bicep' = [for s in services: {
   scope: apimRg
   params: {
     apimName: apim.name
+    authMode: authMode
     productId: '${s.code}-${productPostfix}'
     productDisplayName: '${s.code} ${useCase.businessUnit} ${useCase.useCaseName} ${useCase.environment}'
     productDescription: 'AI Gateway product for ${s.code} - ${useCase.useCaseName}'
@@ -271,8 +282,9 @@ module foundryConnections 'modules/foundryConnection.bicep' = [for (s, i) in ser
     connectionName: '${foundryConnectionPrefix}-${s.code}'
     targetUrl: '${effectiveGatewayUrl}/${onboard[i].outputs.apiPaths[serviceSecretPlans[i].foundryApiIndex]}'
     apimSubscriptionKey: onboard[i].outputs.subscriptionActiveKey
-    authType: foundryConfig.?authType ?? 'ProjectManagedIdentity'
-    managedIdentityAudience: foundryConfig.?managedIdentityAudience ?? 'https://cognitiveservices.azure.com'
+    includeSubscriptionKey: authMode == 'subscription'
+    authType: authMode == 'entra' ? 'ProjectManagedIdentity' : (foundryConfig.?authType ?? 'ProjectManagedIdentity')
+    managedIdentityAudience: authMode == 'entra' ? gatewayAudience : (empty(foundryConfig.?managedIdentityAudience ?? '') ? 'https://cognitiveservices.azure.com' : foundryConfig.managedIdentityAudience)
     connectionCategory: foundryConfig.?connectionCategory ?? 'ApiManagement'
     isSharedToAll: foundryConfig.?isSharedToAll ?? false
     deploymentInPath: foundryConfig.?deploymentInPath ?? 'false'
@@ -320,6 +332,7 @@ module additionalOnboard 'modules/apimOnboardService.bicep' = [for item in addit
   scope: resourceGroup(item.gw.subscriptionId, item.gw.resourceGroupName)
   params: {
     apimName: item.gw.name
+    authMode: authMode
     productId: '${item.s.code}-${productPostfix}'
     productDisplayName: '${item.s.code} ${useCase.businessUnit} ${useCase.useCaseName} ${useCase.environment}'
     productDescription: 'AI Gateway product for ${item.s.code} - ${useCase.useCaseName}'
@@ -338,7 +351,7 @@ module additionalOnboard 'modules/apimOnboardService.bicep' = [for item in addit
 
 // --- Additional Key Vaults: store shared key + per-asset endpoints per (KV x service x secret) ---
 var additionalKvSecretItems = flatten(map(additionalKeyVaults, (kvCfg, k) => flatten(map(serviceSecretPlans, plan => concat(
-  [ { kvIndex: k, kvCfg: kvCfg, serviceIndex: plan.serviceIndex, isKey: true, secretName: plan.keySecretName, apiIndex: 0 } ],
+  (authMode == 'subscription' ? [ { kvIndex: k, kvCfg: kvCfg, serviceIndex: plan.serviceIndex, isKey: true, secretName: plan.keySecretName, apiIndex: 0 } ] : []),
   map(plan.endpoints, ep => { kvIndex: k, kvCfg: kvCfg, serviceIndex: plan.serviceIndex, isKey: false, secretName: ep.secretName, apiIndex: ep.apiIndex })
 )))))
 
@@ -374,6 +387,7 @@ module additionalFoundryConnections 'modules/foundryConnection.bicep' = [for ite
     connectionName: '${foundryConnectionPrefix}-${item.s.code}'
     targetUrl: '${(item.f.?endpointSource ?? '') == 'global' ? globalGatewayUrl : (item.f.?endpointSource ?? '') == 'primary' ? apimSvc.properties.gatewayUrl : startsWith(item.f.?endpointSource ?? '', 'secondary:') ? additionalApim[int(replace(item.f.endpointSource, 'secondary:', ''))].properties.gatewayUrl : effectiveGatewayUrl}/${onboard[item.serviceIndex].outputs.apiPaths[serviceSecretPlans[item.serviceIndex].foundryApiIndex]}'
     apimSubscriptionKey: onboard[item.serviceIndex].outputs.subscriptionActiveKey
+    includeSubscriptionKey: authMode == 'subscription'
     authType: foundryConfig.?authType ?? 'ProjectManagedIdentity'
     managedIdentityAudience: foundryConfig.?managedIdentityAudience ?? 'https://cognitiveservices.azure.com'
     connectionCategory: foundryConfig.?connectionCategory ?? 'ApiManagement'
@@ -397,16 +411,16 @@ output apimGatewayUrl string = apimSvc.properties.gatewayUrl
 output useKeyVault bool = useTargetAzureKeyVault
 
 // Key rotation status (for post-deployment verification)
-output activeKeySlot string = usePrimaryKey ? 'primary' : 'secondary'
-output keyRotationApplied bool = keyRotationEnabled
+output activeKeySlot string = authMode == 'entra' ? '' : (usePrimaryKey ? 'primary' : 'secondary')
+output keyRotationApplied bool = authMode == 'subscription' && keyRotationEnabled
 
-output products array = [for s in services: {
+var legacyProductOutputs = [for s in services: {
   productId: '${s.code}-${productPostfix}'
   displayName: '${s.code} ${useCase.businessUnit} ${useCase.useCaseName} ${useCase.environment}'
 }]
 
 // When using Key Vault, output references to the secret names in Key Vault
-output subscriptions array = [for (s, i) in services: {
+var legacySubscriptionOutputs = [for (s, i) in services: {
   name: '${s.code}-${productPostfix}-SUB-01'
   productId: '${s.code}-${productPostfix}'
   keyVaultApiKeySecretName: useTargetAzureKeyVault ? serviceSecretPlans[i].keySecretName : ''
@@ -414,6 +428,9 @@ output subscriptions array = [for (s, i) in services: {
   keyVaultEndpointSecretName: useTargetAzureKeyVault && length(serviceSecretPlans[i].endpoints) > 0 ? serviceSecretPlans[i].endpoints[0].secretName : ''
   keyVaultEndpointSecretNames: useTargetAzureKeyVault ? map(serviceSecretPlans[i].endpoints, ep => ep.secretName) : []
 }]
+
+output products array = authMode == 'subscription' ? legacyProductOutputs : []
+output subscriptions array = authMode == 'subscription' ? legacySubscriptionOutputs : []
 
 // When NOT using Key Vault, output the actual endpoints and keys
 // These outputs contain runtime values from the onboarding modules
@@ -424,7 +441,7 @@ output subscriptions array = [for (s, i) in services: {
 output endpoints array = [for (s, i) in services: {
   code: s.code
   productId: '${s.code}-${productPostfix}'
-  subscriptionName: '${s.code}-${productPostfix}-SUB-01'
+  subscriptionName: authMode == 'entra' ? '' : '${s.code}-${productPostfix}-SUB-01'
   endpoint: useTargetAzureKeyVault ? '' : '${apimSvc.properties.gatewayUrl}/${onboard[i].outputs.apiPath}'
   // Per-asset endpoints (one per granted API) when not using Key Vault.
   assetEndpoints: useTargetAzureKeyVault ? [] : map(serviceSecretPlans[i].endpoints, ep => {

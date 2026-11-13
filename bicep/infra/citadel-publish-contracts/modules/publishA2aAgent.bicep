@@ -21,6 +21,9 @@
 //    PARAMETERS
 // ------------------
 
+@allowed(['entra', 'subscription'])
+param authMode string = 'subscription'
+
 param apimServiceName string
 param appInsightsLoggerName string = 'appinsights-logger'
 
@@ -84,7 +87,8 @@ var gatewayA2aUrl = '${apim.properties.gatewayUrl}/${agentPath}'
 var cardRewriteElement = '<choose><when condition="@(context.Response.Headers.GetValueOrDefault(&quot;Content-Type&quot;,&quot;&quot;).Contains(&quot;json&quot;))"><find-and-replace from="${jsonRpcBackendUrl}" to="${gatewayA2aUrl}" /></when></choose>'
 
 var defaultPolicyXml = replace(replace(loadTextContent('../policies/baseline-a2a-policy.xml'), '<!-- {backendAuth} -->', backendAuthElement), '<!-- {cardRewrite} -->', cardRewriteElement)
-var effectivePolicyXml = empty(a2aPolicyXml) ? defaultPolicyXml : a2aPolicyXml
+// Entra authentication and contract enforcement cannot be replaced by a caller-supplied custom policy.
+var effectivePolicyXml = authMode == 'entra' ? defaultPolicyXml : (empty(a2aPolicyXml) ? defaultPolicyXml : a2aPolicyXml)
 var effectiveAgentId = empty(agentId) ? agentName : agentId
 
 // Query-string key name mirrors the header: APIM-native header uses the 'subscription-key' query param,
@@ -123,7 +127,7 @@ resource agent 'Microsoft.ApiManagement/service/apis@2025-09-01-preview' = {
       backendUrl: jsonRpcBackendUrl
       path: jsonRpcPath
     }
-    subscriptionRequired: subscriptionRequired
+    subscriptionRequired: authMode == 'subscription' ? subscriptionRequired : false
     path: agentPath
     protocols: [
       'https'

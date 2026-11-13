@@ -1,3 +1,7 @@
+@allowed(['entra', 'subscription'])
+@description('Entra grants are resolved by gateway JWT policy; subscription mode retains APIM Products and keys.')
+param authMode string = 'subscription'
+
 @description('Existing APIM service name')
 param apimName string
 
@@ -45,7 +49,7 @@ resource apim 'Microsoft.ApiManagement/service@2024-05-01' existing = {
   name: apimName
 }
 
-resource product 'Microsoft.ApiManagement/service/products@2024-05-01' = {
+resource product 'Microsoft.ApiManagement/service/products@2024-05-01' = if (authMode == 'subscription') {
   name: productId
   parent: apim
   properties: {
@@ -59,12 +63,12 @@ resource product 'Microsoft.ApiManagement/service/products@2024-05-01' = {
   }
 }
 
-resource productApis 'Microsoft.ApiManagement/service/products/apis@2024-05-01' = [for (apiName, i) in apiNames: {
+resource productApis 'Microsoft.ApiManagement/service/products/apis@2024-05-01' = [for (apiName, i) in apiNames: if (authMode == 'subscription') {
   name: apiName
   parent: product
 }]
 
-resource policy 'Microsoft.ApiManagement/service/products/policies@2024-05-01' = {
+resource policy 'Microsoft.ApiManagement/service/products/policies@2024-05-01' = if (authMode == 'subscription') {
   name: 'policy'
   parent: product
   properties: {
@@ -73,7 +77,7 @@ resource policy 'Microsoft.ApiManagement/service/products/policies@2024-05-01' =
   }
 }
 
-resource sub 'Microsoft.ApiManagement/service/subscriptions@2024-05-01' = {
+resource sub 'Microsoft.ApiManagement/service/subscriptions@2024-05-01' = if (authMode == 'subscription') {
   name: subscriptionName
   parent: apim
   properties: union(
@@ -99,14 +103,14 @@ resource apis 'Microsoft.ApiManagement/service/apis@2025-09-01-preview' existing
   parent: apim
 }]
 
-output productName string = product.name
-output subscriptionNameOut string = sub.name
+output productName string = authMode == 'subscription' ? product.name : productId
+output subscriptionNameOut string = authMode == 'subscription' ? sub.name : ''
 @secure()
-output subscriptionPrimaryKey string = sub.listSecrets().primaryKey
+output subscriptionPrimaryKey string = authMode == 'subscription' ? sub.listSecrets().primaryKey : ''
 @secure()
-output subscriptionSecondaryKey string = sub.listSecrets().secondaryKey
+output subscriptionSecondaryKey string = authMode == 'subscription' ? sub.listSecrets().secondaryKey : ''
 @secure()
-output subscriptionActiveKey string = usePrimaryKey ? sub.listSecrets().primaryKey : sub.listSecrets().secondaryKey
+output subscriptionActiveKey string = authMode == 'subscription' ? (usePrimaryKey ? sub.listSecrets().primaryKey : sub.listSecrets().secondaryKey) : ''
 // First API path (backward compatible single-endpoint consumers)
 output apiPath string = apis[0].properties.path
 // All granted API paths, aligned to apiNames order (per-asset endpoint publishing)

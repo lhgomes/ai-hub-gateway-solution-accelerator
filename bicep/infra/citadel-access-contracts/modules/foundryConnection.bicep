@@ -36,13 +36,16 @@ param connectionName string
 @description('Target URL for the APIM connection (gateway + API path)')
 param targetUrl string
 
-@description('APIM subscription key for API access')
+@description('APIM subscription key; empty when using Entra ID authentication')
 @secure()
-param apimSubscriptionKey string
+param apimSubscriptionKey string = ''
 
 // ============================================================================
 // OPTIONAL PARAMETERS
 // ============================================================================
+
+@description('Whether to forward an APIM key alongside the Foundry Managed Identity JWT. False for Entra-only gateways.')
+param includeSubscriptionKey bool = false
 
 @allowed(['ApiKey', 'ProjectManagedIdentity'])
 @description('Authentication type. "ProjectManagedIdentity" (default in the access contract) uses the Foundry project managed identity for a Bearer token AND sends the APIM subscription key as the "api-key" custom header. "ApiKey" stores the subscription key in credentials.key (original behavior).')
@@ -94,7 +97,7 @@ param authConfig object = {}
 // When using the project managed identity, the APIM subscription key is delivered as the
 // "api-key" custom header (in addition to the Bearer token), so it is merged into customHeaders.
 var isManagedIdentity = authType == 'ProjectManagedIdentity'
-var effectiveCustomHeaders = isManagedIdentity ? union(customHeaders, { 'api-key': apimSubscriptionKey }) : customHeaders
+var effectiveCustomHeaders = isManagedIdentity && includeSubscriptionKey ? union(customHeaders, { 'api-key': apimSubscriptionKey }) : customHeaders
 
 // Validation flags
 var hasStaticModels = length(staticModels) > 0
