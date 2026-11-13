@@ -35,8 +35,6 @@ param sourceManagedIdentityAudience string = ''
 @description('Optional APIM user-assigned Managed Identity client ID for the internal source API hop.')
 param sourceManagedIdentityClientId string = ''
 
-assert keylessSourceRequiresAudience = !entraOnly || !empty(sourceManagedIdentityAudience)
-assert keylessSourceCannotForwardSubscriptionKeys = !entraOnly || !forwardSubscriptionKeyToSource
 
 
 @description('Header name callers use to present the subscription (API) key. Accepts the LLM-style "api-key" or the APIM-native "Ocp-Apim-Subscription-Key".')
@@ -69,7 +67,10 @@ var defaultPolicyXml = loadTextContent('../policies/baseline-mcp-policy.xml')
 // subscription gate (standard subscription headers are stripped by APIM before that hop).
 var forwardKeySnippet = '        <set-header name="${sourceSubscriptionKeyHeaderName}" exists-action="override">\n            <value>@(context.Subscription?.Key ?? "")</value>\n        </set-header>\n'
 var baselineWithForward = replace(defaultPolicyXml, '    </inbound>', '${forwardKeySnippet}    </inbound>')
-var keylessSourceAuth = empty(sourceManagedIdentityClientId) ? '<authentication-managed-identity resource="${sourceManagedIdentityAudience}" />' : '<authentication-managed-identity resource="${sourceManagedIdentityAudience}" client-id="${sourceManagedIdentityClientId}" />'
+// Fail closed if keyless source authentication cannot be configured.
+var keylessSourceAuth = empty(sourceManagedIdentityAudience)
+  ? '<return-response><set-status code="503" reason="Managed Identity source audience missing" /></return-response>'
+  : empty(sourceManagedIdentityClientId) ? '<authentication-managed-identity resource="${sourceManagedIdentityAudience}" />' : '<authentication-managed-identity resource="${sourceManagedIdentityAudience}" client-id="${sourceManagedIdentityClientId}" />'
 var entraPolicyXml = replace(replace(defaultPolicyXml, '<include-fragment fragment-id="security-handler" />', '<include-fragment fragment-id="entra-contract-auth" />\n        <set-variable name="assetKind" value="tool" />\n        <include-fragment fragment-id="entra-contract-request-limits" />\n        ${keylessSourceAuth}'), 'fragment-id="mcp-usage"', 'fragment-id="entra-mcp-usage"')
 var effectivePolicyXml = entraOnly ? entraPolicyXml : (!empty(mcpPolicyXml) ? mcpPolicyXml : (forwardSubscriptionKeyToSource ? baselineWithForward : defaultPolicyXml))
 
