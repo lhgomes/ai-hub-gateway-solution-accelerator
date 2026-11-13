@@ -8,6 +8,7 @@ Contracts are an explicit allowlist; validation rejects ambiguous grants.
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import re
 from pathlib import Path
@@ -22,6 +23,23 @@ API_FILES = {
 PERIODS = {"Hourly", "Daily", "Weekly", "Monthly", "Yearly"}
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "bicep/infra/modules/apim/policies"
+
+
+def normalize_upstream_policy_xml(content):
+    """Escape C# quote/angle characters in upstream APIM expression attributes.
+
+    Some original policy sources contain literal nested double quotes inside
+    XML attributes. Preserve the APIM expression while producing valid XML.
+    """
+    def fix(match):
+        raw = html.unescape(match.group("body"))
+        safe = escape(raw, {'"': "&quot;"})
+        return match.group("prefix") + safe + match.group("suffix")
+
+    pattern = re.compile(
+        r'(?P<prefix>\\b[\\w:-]+=")(?P<body>@[\\s\\S]*?)(?P<suffix>[})]"(?=\\s*(?:/?>|[a-zA-Z][\\w:-]*=)))'
+    )
+    return pattern.sub(fix, content)
 
 
 def validate(config):
@@ -174,6 +192,7 @@ def rewrite_policy(api, content):
                               '<include-fragment fragment-id="entra-set-llm-usage" />')
     if '<include-fragment fragment-id="entra-contract-auth" />' not in content:
         raise ValueError("JWT authentication was not installed")
+    content = normalize_upstream_policy_xml(content)
     ET.fromstring(content)
     return content
 
@@ -191,6 +210,7 @@ def response_fragment(name):
                               'context.Variables.GetValueOrDefault<string>("contractId", "NA")')
     content = content.replace('context.Product?.Id', 'context.Variables.GetValueOrDefault<string>("contractId", "NA")')
     content = content.replace('context.Subscription?.Id', 'context.Variables.GetValueOrDefault<string>("callerId", "NA")')
+    content = normalize_upstream_policy_xml(content)
     ET.fromstring(content)
     return content
 
@@ -201,6 +221,7 @@ def usage_fragment():
                               'context.Variables.GetValueOrDefault<string>("contractId", "Unassigned")')
     content = content.replace('context.Subscription?.Id ?? "Portal-Admin-Sub"',
                               'context.Variables.GetValueOrDefault<string>("callerId", "Unassigned")')
+    content = normalize_upstream_policy_xml(content)
     ET.fromstring(content)
     return content
 
