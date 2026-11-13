@@ -3,10 +3,12 @@ import copy
 import importlib.util
 from pathlib import Path
 import tempfile
+import sys
 import unittest
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "scripts"))
 SPEC = importlib.util.spec_from_file_location("entra_only_auth", ROOT / "scripts/entra_only_auth.py")
 auth = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(auth)
@@ -95,8 +97,32 @@ class EntraOnlyGenerationTests(unittest.TestCase):
         self.assertIn(OID1, xml)
         self.assertIn(OID2, xml)
 
+
+    def test_deployment_preflight_never_relaxes_subscription_settings(self):
+        import deploy_entra_only_auth as deployment
+        rid = ("/subscriptions/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/"
+               "resourceGroups/test/providers/Microsoft.ApiManagement/service/test-isolated")
+        calls = []
+        def safe_rest(method, url, body=None):
+            calls.append((method, url))
+            if url.endswith("/products?api-version=2024-05-01"):
+                return {"value": []}
+            return {"properties": {"subscriptionRequired": False}}
+        self.assertTrue(deployment.preflight(rid, ["unified-ai-api"], safe_rest))
+        self.assertTrue(all(method == "GET" for method, _ in calls))
+        def legacy_rest(method, url, body=None):
+            return {"properties": {"subscriptionRequired": True}}
+        with self.assertRaisesRegex(ValueError, "subscriptionRequired=false"):
+            deployment.preflight(rid, ["unified-ai-api"], legacy_rest)
+        def product_rest(method, url, body=None):
+            return {"value": [{"id": "legacy-product"}]} if "/products?" in url else {
+                "properties": {"subscriptionRequired": False}}
+        with self.assertRaisesRegex(ValueError, "APIM Products"):
+            deployment.preflight(rid, ["unified-ai-api"], product_rest)
+
     def test_caller_token_does_not_become_backend_key(self):
         xml = auth.auth_fragment(sample())
+        self.assertIn('name="Authorization" exists-action="delete"', xml)
         self.assertIn('name="api-key" exists-action="delete"', xml)
         self.assertIn('name="Ocp-Apim-Subscription-Key" exists-action="delete"', xml)
         self.assertIn('output-token-variable-name="validated-jwt"', xml)
