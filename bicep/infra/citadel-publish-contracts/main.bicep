@@ -106,6 +106,7 @@ param apiCenter object = {
     circuitBreaker?: object
   }
 
+  authMode?: 'subscription' | 'entra' // opt-in JWT-only authorization; requires generated fragments
   policyXml?: string               // optional rawxml override for the baseline policy
 
   publishToApiCenter?: bool        // default false
@@ -199,6 +200,7 @@ module mcpFromApi 'modules/publishMcpFromApi.bicep' = [for (asset, i) in publish
     mcpDescription: asset.description
     mcpPath: effectivePaths[i]
     mcpSubscriptionRequired: asset.?subscriptionRequired ?? true
+    entraOnly: (asset.?authMode ?? 'subscription') == 'entra'
     subscriptionKeyHeaderName: asset.?subscriptionKeyHeaderName ?? 'api-key'
     forwardSubscriptionKeyToSource: asset.?forwardSubscriptionKeyToSource ?? false
     sourceSubscriptionKeyHeaderName: asset.?sourceSubscriptionKeyHeaderName ?? 'x-mcp-sub-key'
@@ -249,6 +251,7 @@ module a2aAgent 'modules/publishA2aAgent.bicep' = [for (asset, i) in publishAsse
     jsonRpcBackendUrl: asset.backend.url
     jsonRpcPath: asset.?jsonRpcPath ?? '/'
     subscriptionRequired: asset.?subscriptionRequired ?? false
+    entraOnly: (asset.?authMode ?? 'subscription') == 'entra'
     subscriptionKeyHeaderName: asset.?subscriptionKeyHeaderName ?? 'api-key'
     managedIdentityClientId: managedIdentityClientId
     backendAuthResource: asset.backend.?authConfig.?resource ?? 'https://ai.azure.com'
