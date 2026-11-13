@@ -207,15 +207,25 @@ def limits_fragment(config):
 def request_limits_fragment(config):
     """Contract-wide request limits for MCP/A2A; no subscription context needed."""
     clauses = []
-    for c in config["contracts"]:
-        if not any(api in config.get("assetKinds", {}) for api in c["apis"]):
+    for contract in config["contracts"]:
+        if not any(api in config.get("assetKinds", {}) for api in contract["apis"]):
             continue
-        limit_key = '@(context.Variables.GetValueOrDefault<string>("contractId", "") + ":" + context.Api.Id)'
-        clauses.append(f"""<when condition={expr('@(context.Variables.GetValueOrDefault<string>("contractId", "") == ' + json.dumps(c["id"]) + ')')}>
-  <rate-limit-by-key counter-key={expr(limit_key)} calls="{c['requestsPerMinute']}" renewal-period="60" />
-  <quota-by-key counter-key={expr(limit_key)} calls="{c['requestQuota']}" renewal-period="{c['quotaPeriodSeconds']}" />
-</when>""")
-    return "<fragment><choose>\\n" + "\\n".join(clauses) + "\\n<otherwise><return-response><set-status code=\\\"403\\\" reason=\\\"Unrecognized contract\\\" /></return-response></otherwise></choose></fragment>\\n"
+        condition = '@(context.Variables.GetValueOrDefault<string>("contractId", "") == ' + json.dumps(contract["id"]) + ')'
+        counter = '@(context.Variables.GetValueOrDefault<string>("contractId", "") + ":" + context.Api.Id)'
+        clauses.append(
+            '<when condition=' + expr(condition) + '>'
+            + '<rate-limit-by-key counter-key=' + expr(counter)
+            + ' calls="' + str(contract["requestsPerMinute"]) + '" renewal-period="60" />'
+            + '<quota-by-key counter-key=' + expr(counter)
+            + ' calls="' + str(contract["requestQuota"]) + '" renewal-period="'
+            + str(contract["quotaPeriodSeconds"]) + '" />'
+            + '</when>'
+        )
+    return ('<fragment><choose>' + ''.join(clauses)
+            + '<otherwise><return-response>'
+            + '<set-status code="403" reason="Unrecognized contract" />'
+            + '</return-response></otherwise></choose></fragment>')
+
 
 
 def asset_usage_fragment(kind):
