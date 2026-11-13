@@ -27,6 +27,7 @@ RESOURCE_RE = re.compile(
 FRAGMENTS = {
     "entra-contract-auth": "frag-entra-contract-auth.xml",
     "entra-contract-limits": "frag-entra-contract-limits.xml",
+    "entra-authorize-target-pool": "frag-entra-authorize-target-pool.xml",
     "entra-responses-id-security": "frag-entra-responses-id-security.xml",
     "entra-responses-id-cache-store": "frag-entra-responses-id-cache-store.xml",
     "entra-set-llm-usage": "frag-entra-set-llm-usage.xml",
