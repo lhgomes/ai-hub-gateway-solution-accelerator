@@ -48,7 +48,7 @@ param mcpPolicyXml string = ''
 // ------------------
 
 var defaultPolicyXml = loadTextContent('../policies/baseline-mcp-policy.xml')
-var entraPolicyXml = replace(replace(defaultPolicyXml, '<include-fragment fragment-id="security-handler" />', '<include-fragment fragment-id="entra-contract-auth" />\\n        <include-fragment fragment-id="entra-contract-request-limits" />'), 'fragment-id="mcp-usage"', 'fragment-id="entra-mcp-usage"')
+var entraPolicyXml = replace(replace(defaultPolicyXml, '<include-fragment fragment-id="security-handler" />', '<include-fragment fragment-id="entra-contract-auth" />\n        <include-fragment fragment-id="entra-contract-request-limits" />'), 'fragment-id="mcp-usage"', 'fragment-id="entra-mcp-usage"')
 var effectivePolicyXml = entraOnly ? entraPolicyXml : (empty(mcpPolicyXml) ? defaultPolicyXml : mcpPolicyXml)
 
 // Query-string key name mirrors the header: the APIM-native header uses the 'subscription-key' query param,
