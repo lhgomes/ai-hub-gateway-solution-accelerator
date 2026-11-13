@@ -4,13 +4,32 @@
   "contracts": [
     {
       "id": "LLM-EXAMPLE-DEV",
-      "callers": ["REPLACE-WITH-MANAGED-IDENTITY-SERVICE-PRINCIPAL-OID"],
-      "apis": ["azure-openai-api", "universal-llm-api", "unified-ai-api"],
-      "allowedModels": ["gpt-4.1"],
-      "allowedBackendPools": ["REPLACE-WITH-POOL-ID"],
+      "callers": [
+        "REPLACE-WITH-MANAGED-IDENTITY-SERVICE-PRINCIPAL-OID"
+      ],
+      "apis": [
+        "azure-openai-api",
+        "universal-llm-api",
+        "unified-ai-api",
+        "weather-tool",
+        "hr-agent"
+      ],
+      "allowedModels": [
+        "gpt-4.1"
+      ],
+      "allowedBackendPools": [
+        "REPLACE-WITH-POOL-ID"
+      ],
       "tokensPerMinute": 1000,
       "tokenQuota": 100000,
-      "tokenQuotaPeriod": "Monthly"
+      "tokenQuotaPeriod": "Monthly",
+      "requestsPerMinute": 60,
+      "requestQuota": 10000,
+      "quotaPeriodSeconds": 2592000
     }
-  ]
+  ],
+  "assetKinds": {
+    "weather-tool": "tool",
+    "hr-agent": "agent"
+  }
 }
