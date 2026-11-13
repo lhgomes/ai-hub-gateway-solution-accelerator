@@ -221,7 +221,7 @@ def rewrite_policy(api, content):
     if backend_auth not in content:
         raise ValueError(f"{api}: backend authorization call not found")
     content = content.replace(backend_auth,
-                              '<include-fragment fragment-id="entra-authorize-target-pool" />\\n'
+                              '<include-fragment fragment-id="entra-authorize-target-pool" />\n'
                               '        ' + backend_auth)
     if '<include-fragment fragment-id="entra-contract-auth" />' not in content:
         raise ValueError("JWT authentication was not installed")
