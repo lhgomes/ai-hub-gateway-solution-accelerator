@@ -42,7 +42,7 @@ def az_rest(method, url, body=None):
             path = Path(d) / "body.json"
             path.write_text(json.dumps(body), encoding="utf-8")
             result = subprocess.run(
-                cmd + ["--headers", "Content-Type=application/json", "--body", "@" + str(path)],
+                cmd + ["--headers", "Content-Type=application/json", "If-Match=*", "--body", "@" + str(path)],
                 check=True, capture_output=True, text=True,
             )
     return json.loads(result.stdout) if result.stdout.strip() else {}
