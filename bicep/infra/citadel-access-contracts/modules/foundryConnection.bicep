@@ -36,9 +36,9 @@ param connectionName string
 @description('Target URL for the APIM connection (gateway + API path)')
 param targetUrl string
 
-@description('APIM subscription key for API access')
+@description('APIM subscription key; omit when using ProjectManagedIdentity with includeSubscriptionKey=false')
 @secure()
-param apimSubscriptionKey string
+param apimSubscriptionKey string = ''
 
 // ============================================================================
 // OPTIONAL PARAMETERS
@@ -87,6 +87,9 @@ param customHeaders object = {}
 @description('Custom authentication configuration')
 param authConfig object = {}
 
+@description('When false, ProjectManagedIdentity connections send ONLY their bearer token (no APIM subscription key). Use exclusively with a JWT-only gateway audience; the legacy default remains true.')
+param includeSubscriptionKey bool = true
+
 // ============================================================================
 // VARIABLES
 // ============================================================================
@@ -94,7 +97,7 @@ param authConfig object = {}
 // When using the project managed identity, the APIM subscription key is delivered as the
 // "api-key" custom header (in addition to the Bearer token), so it is merged into customHeaders.
 var isManagedIdentity = authType == 'ProjectManagedIdentity'
-var effectiveCustomHeaders = isManagedIdentity ? union(customHeaders, { 'api-key': apimSubscriptionKey }) : customHeaders
+var effectiveCustomHeaders = isManagedIdentity && includeSubscriptionKey ? union(customHeaders, { 'api-key': apimSubscriptionKey }) : customHeaders
 
 // Validation flags
 var hasStaticModels = length(staticModels) > 0
