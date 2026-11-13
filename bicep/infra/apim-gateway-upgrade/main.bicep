@@ -27,6 +27,14 @@ param apimServiceName string
 @description('Name of the existing user-assigned managed identity used by APIM for backend auth')
 param managedIdentityName string
 
+@allowed(['preserve', 'subscription', 'entra'])
+@description('Authorization mode for API/policy upgrades. Default preserve prevents changing existing JWT grants or subscription requirements. Explicitly select entra or subscription to update authentication-sensitive APIs.')
+param authMode string = 'preserve'
+
+@description('Complete gateway desired-state Access Contracts. Required when explicitly upgrading Entra authorization; no grants means deny all.')
+param gatewayAccessContracts array = []
+
+
 // =====================================================================
 //    FEATURE FLAGS — control which configuration sections are applied
 // =====================================================================
@@ -342,39 +350,50 @@ resource contentSafetyBackend 'Microsoft.ApiManagement/service/backends@2024-05-
 var jwtTenantIdValue = !empty(jwtTenantId) ? jwtTenantId : subscription().tenantId
 var jwtAppRegIdValue = !empty(jwtAppRegistrationId) ? jwtAppRegistrationId : 'not-configured'
 
-resource jwtTenantIdNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = if (updateJwtNamedValues) {
+// Explicit upgrades are the only operations allowed to change the gateway auth mode.
+resource gatewayAuthModeNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = if (authMode != 'preserve') {
+  name: 'Gateway-Auth-Mode'
+  parent: apimService
+  properties: {
+    displayName: 'Gateway-Auth-Mode'
+    secret: false
+    value: authMode
+  }
+}
+
+resource jwtTenantIdNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = if (updateJwtNamedValues && authMode != 'preserve') {
   name: 'JWT-TenantId'
   parent: apimService
   properties: {
     displayName: 'JWT-TenantId'
-    value: enableJwtAuth ? jwtTenantIdValue : 'not-configured'
+    value: (enableJwtAuth || authMode == 'entra') ? jwtTenantIdValue : 'not-configured'
   }
 }
 
-resource jwtAppRegistrationIdNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = if (updateJwtNamedValues) {
+resource jwtAppRegistrationIdNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = if (updateJwtNamedValues && authMode != 'preserve') {
   name: 'JWT-AppRegistrationId'
   parent: apimService
   properties: {
     displayName: 'JWT-AppRegistrationId'
-    value: enableJwtAuth ? jwtAppRegIdValue : 'not-configured'
+    value: (enableJwtAuth || authMode == 'entra') ? jwtAppRegIdValue : 'not-configured'
   }
 }
 
-resource jwtIssuerNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = if (updateJwtNamedValues) {
+resource jwtIssuerNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = if (updateJwtNamedValues && authMode != 'preserve') {
   name: 'JWT-Issuer'
   parent: apimService
   properties: {
     displayName: 'JWT-Issuer'
-    value: enableJwtAuth ? '${environment().authentication.loginEndpoint}${jwtTenantIdValue}/v2.0' : 'not-configured'
+    value: (enableJwtAuth || authMode == 'entra') ? '${environment().authentication.loginEndpoint}${jwtTenantIdValue}/v2.0' : 'not-configured'
   }
 }
 
-resource jwtOpenIdConfigUrlNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = if (updateJwtNamedValues) {
+resource jwtOpenIdConfigUrlNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = if (updateJwtNamedValues && authMode != 'preserve') {
   name: 'JWT-OpenIdConfigUrl'
   parent: apimService
   properties: {
     displayName: 'JWT-OpenIdConfigUrl'
-    value: enableJwtAuth ? '${environment().authentication.loginEndpoint}${jwtTenantIdValue}/v2.0/.well-known/openid-configuration' : 'not-configured'
+    value: (enableJwtAuth || authMode == 'entra') ? '${environment().authentication.loginEndpoint}${jwtTenantIdValue}/v2.0/.well-known/openid-configuration' : 'not-configured'
   }
 }
 
@@ -419,13 +438,15 @@ resource embeddingsBackend 'Microsoft.ApiManagement/service/backends@2024-06-01-
 //    POLICY FRAGMENTS (static — from policy-fragments.bicep)
 // =====================================================================
 
-module policyFragments '../modules/apim/policy-fragments.bicep' = if (updatePolicyFragments) {
+module policyFragments '../modules/apim/policy-fragments.bicep' = if (updatePolicyFragments && authMode != 'preserve') {
   name: 'apim-policy-fragments-upgrade'
   params: {
     apimServiceName: apimService.name
     enablePIIAnonymization: enablePIIAnonymization
     enableAIModelInference: enableAIModelInference
     enableUnifiedAiApi: enableUnifiedAiApi
+    deployContractFragments: authMode != 'preserve'
+    gatewayAccessContracts: gatewayAccessContracts
   }
   dependsOn: [
     piiServiceUrlNamedValue
@@ -435,6 +456,25 @@ module policyFragments '../modules/apim/policy-fragments.bicep' = if (updatePoli
     jwtIssuerNamedValue
     jwtOpenIdConfigUrlNamedValue
   ]
+}
+
+// Validate both v1 and v2 Managed Identity JWT issuers in explicit Entra upgrades.
+resource jwtOpenIdConfigUrlV1NamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = if (updateJwtNamedValues && authMode == 'entra') {
+  name: 'JWT-OpenIdConfigUrlV1'
+  parent: apimService
+  properties: {
+    displayName: 'JWT-OpenIdConfigUrlV1'
+    value: '${environment().authentication.loginEndpoint}${jwtTenantIdValue}/.well-known/openid-configuration'
+  }
+}
+
+resource jwtIssuerV1NamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = if (updateJwtNamedValues && authMode == 'entra') {
+  name: 'JWT-IssuerV1'
+  parent: apimService
+  properties: {
+    displayName: 'JWT-IssuerV1'
+    value: 'https://sts.windows.net/${jwtTenantIdValue}/'
+  }
 }
 
 // =====================================================================
@@ -480,7 +520,7 @@ module llmPolicyFragments '../modules/apim/llm-policy-fragments.bicep' = if (upd
 //    APIs — Inference APIs (Universal LLM & Azure OpenAI)
 // =====================================================================
 
-module apiUniversalLLM '../modules/apim/inference-api.bicep' = if (updateUniversalLLMApi) {
+module apiUniversalLLM '../modules/apim/inference-api.bicep' = if (updateUniversalLLMApi && authMode != 'preserve') {
   name: 'universal-llm-api-upgrade'
   params: {
     apiManagementName: apimService.name
@@ -489,7 +529,7 @@ module apiUniversalLLM '../modules/apim/inference-api.bicep' = if (updateUnivers
     inferenceAPIType: 'OpenAIV1'
     inferenceAPIDisplayName: 'Universal LLM API'
     inferenceAPIDescription: 'Universal LLM API to route requests to different LLM providers including Azure OpenAI, AI Foundry and 3rd party models.'
-    allowSubscriptionKey: true
+    allowSubscriptionKey: authMode != 'entra'
     apimLoggerId: azMonitorLoggerId
     policyXml: loadTextContent('../modules/apim/policies/universal-llm-api-policy-v2.xml')
     azureMonitorLogSettings: azureMonitorLogSettings
@@ -504,7 +544,7 @@ module apiUniversalLLM '../modules/apim/inference-api.bicep' = if (updateUnivers
   ]
 }
 
-module apimOpenaiApi '../modules/apim/inference-api.bicep' = if (updateAzureOpenAIApi) {
+module apimOpenaiApi '../modules/apim/inference-api.bicep' = if (updateAzureOpenAIApi && authMode != 'preserve') {
   name: 'azure-openai-api-upgrade'
   params: {
     apiManagementName: apimService.name
@@ -513,7 +553,7 @@ module apimOpenaiApi '../modules/apim/inference-api.bicep' = if (updateAzureOpen
     inferenceAPIType: 'AzureOpenAI'
     inferenceAPIDisplayName: 'Azure OpenAI API'
     inferenceAPIDescription: 'Azure OpenAI API to route requests to different LLM providers including Azure OpenAI, AI Foundry and 3rd party models.'
-    allowSubscriptionKey: true
+    allowSubscriptionKey: authMode != 'entra'
     apimLoggerId: azMonitorLoggerId
     policyXml: loadTextContent('../modules/apim/policies/azure-open-ai-api-policy.xml')
     azureMonitorLogSettings: azureMonitorLogSettings
@@ -532,11 +572,12 @@ module apimOpenaiApi '../modules/apim/inference-api.bicep' = if (updateAzureOpen
 //    APIs — Unified AI Wildcard API
 // =====================================================================
 
-module apiUnifiedAI '../modules/apim/unified-ai-api.bicep' = if (updateUnifiedAiApi) {
+module apiUnifiedAI '../modules/apim/unified-ai-api.bicep' = if (updateUnifiedAiApi && authMode != 'preserve') {
   name: 'unified-ai-api-upgrade'
   params: {
     apiManagementName: apimService.name
     enabled: enableUnifiedAiApi
+    entraAuth: authMode == 'entra'
     apimLoggerId: azMonitorLoggerId
     azureMonitorLogSettings: azureMonitorLogSettings
   }
@@ -573,7 +614,7 @@ module apiReleaseVersion '../modules/apim/version-api.bicep' = if (updateRelease
 // =====================================================================
 
 // Universal LLM API operation policies
-resource universalLLMApi 'Microsoft.ApiManagement/service/apis@2022-08-01' existing = if (updateUniversalLLMApi) {
+resource universalLLMApi 'Microsoft.ApiManagement/service/apis@2022-08-01' existing = if (updateUniversalLLMApi && authMode != 'preserve') {
   name: 'universal-llm-api'
   parent: apimService
   dependsOn: [
@@ -581,27 +622,27 @@ resource universalLLMApi 'Microsoft.ApiManagement/service/apis@2022-08-01' exist
   ]
 }
 
-resource universalLlmDeploymentOperation 'Microsoft.ApiManagement/service/apis/operations@2022-08-01' existing = if (updateUniversalLLMApi) {
+resource universalLlmDeploymentOperation 'Microsoft.ApiManagement/service/apis/operations@2022-08-01' existing = if (updateUniversalLLMApi && authMode != 'preserve') {
   name: 'deployments'
   parent: universalLLMApi
 }
 
-resource universalLlmDeploymentByNameOperation 'Microsoft.ApiManagement/service/apis/operations@2022-08-01' existing = if (updateUniversalLLMApi) {
+resource universalLlmDeploymentByNameOperation 'Microsoft.ApiManagement/service/apis/operations@2022-08-01' existing = if (updateUniversalLLMApi && authMode != 'preserve') {
   name: 'deployment-by-name'
   parent: universalLLMApi
 }
 
-resource universalLlmListModelsOperation 'Microsoft.ApiManagement/service/apis/operations@2022-08-01' existing = if (updateUniversalLLMApi) {
+resource universalLlmListModelsOperation 'Microsoft.ApiManagement/service/apis/operations@2022-08-01' existing = if (updateUniversalLLMApi && authMode != 'preserve') {
   name: 'listModels'
   parent: universalLLMApi
 }
 
-resource universalLlmRetrieveModelOperation 'Microsoft.ApiManagement/service/apis/operations@2022-08-01' existing = if (updateUniversalLLMApi) {
+resource universalLlmRetrieveModelOperation 'Microsoft.ApiManagement/service/apis/operations@2022-08-01' existing = if (updateUniversalLLMApi && authMode != 'preserve') {
   name: 'retrieveModel'
   parent: universalLLMApi
 }
 
-resource universalLlmDeploymentOperationPolicy 'Microsoft.ApiManagement/service/apis/operations/policies@2022-08-01' = if (updateUniversalLLMApi) {
+resource universalLlmDeploymentOperationPolicy 'Microsoft.ApiManagement/service/apis/operations/policies@2022-08-01' = if (updateUniversalLLMApi && authMode != 'preserve') {
   name: 'policy'
   parent: universalLlmDeploymentOperation
   properties: {
@@ -610,7 +651,7 @@ resource universalLlmDeploymentOperationPolicy 'Microsoft.ApiManagement/service/
   }
 }
 
-resource universalLlmDeploymentByNameOperationPolicy 'Microsoft.ApiManagement/service/apis/operations/policies@2022-08-01' = if (updateUniversalLLMApi) {
+resource universalLlmDeploymentByNameOperationPolicy 'Microsoft.ApiManagement/service/apis/operations/policies@2022-08-01' = if (updateUniversalLLMApi && authMode != 'preserve') {
   name: 'policy'
   parent: universalLlmDeploymentByNameOperation
   properties: {
@@ -619,7 +660,7 @@ resource universalLlmDeploymentByNameOperationPolicy 'Microsoft.ApiManagement/se
   }
 }
 
-resource universalLlmListModelsOperationPolicy 'Microsoft.ApiManagement/service/apis/operations/policies@2022-08-01' = if (updateUniversalLLMApi) {
+resource universalLlmListModelsOperationPolicy 'Microsoft.ApiManagement/service/apis/operations/policies@2022-08-01' = if (updateUniversalLLMApi && authMode != 'preserve') {
   name: 'policy'
   parent: universalLlmListModelsOperation
   properties: {
@@ -628,7 +669,7 @@ resource universalLlmListModelsOperationPolicy 'Microsoft.ApiManagement/service/
   }
 }
 
-resource universalLlmRetrieveModelOperationPolicy 'Microsoft.ApiManagement/service/apis/operations/policies@2022-08-01' = if (updateUniversalLLMApi) {
+resource universalLlmRetrieveModelOperationPolicy 'Microsoft.ApiManagement/service/apis/operations/policies@2022-08-01' = if (updateUniversalLLMApi && authMode != 'preserve') {
   name: 'policy'
   parent: universalLlmRetrieveModelOperation
   properties: {
@@ -638,7 +679,7 @@ resource universalLlmRetrieveModelOperationPolicy 'Microsoft.ApiManagement/servi
 }
 
 // Azure OpenAI API operation policies
-resource openAIApi 'Microsoft.ApiManagement/service/apis@2022-08-01' existing = if (updateAzureOpenAIApi) {
+resource openAIApi 'Microsoft.ApiManagement/service/apis@2022-08-01' existing = if (updateAzureOpenAIApi && authMode != 'preserve') {
   name: 'azure-openai-api'
   parent: apimService
   dependsOn: [
@@ -646,17 +687,17 @@ resource openAIApi 'Microsoft.ApiManagement/service/apis@2022-08-01' existing = 
   ]
 }
 
-resource openAIDeploymentOperation 'Microsoft.ApiManagement/service/apis/operations@2022-08-01' existing = if (updateAzureOpenAIApi) {
+resource openAIDeploymentOperation 'Microsoft.ApiManagement/service/apis/operations@2022-08-01' existing = if (updateAzureOpenAIApi && authMode != 'preserve') {
   name: 'deployments'
   parent: openAIApi
 }
 
-resource openAIDeploymentByNameOperation 'Microsoft.ApiManagement/service/apis/operations@2022-08-01' existing = if (updateAzureOpenAIApi) {
+resource openAIDeploymentByNameOperation 'Microsoft.ApiManagement/service/apis/operations@2022-08-01' existing = if (updateAzureOpenAIApi && authMode != 'preserve') {
   name: 'deployment-by-name'
   parent: openAIApi
 }
 
-resource openAIDeploymentOperationPolicy 'Microsoft.ApiManagement/service/apis/operations/policies@2022-08-01' = if (updateAzureOpenAIApi) {
+resource openAIDeploymentOperationPolicy 'Microsoft.ApiManagement/service/apis/operations/policies@2022-08-01' = if (updateAzureOpenAIApi && authMode != 'preserve') {
   name: 'policy'
   parent: openAIDeploymentOperation
   properties: {
@@ -665,7 +706,7 @@ resource openAIDeploymentOperationPolicy 'Microsoft.ApiManagement/service/apis/o
   }
 }
 
-resource openAIDeploymentByNameOperationPolicy 'Microsoft.ApiManagement/service/apis/operations/policies@2022-08-01' = if (updateAzureOpenAIApi) {
+resource openAIDeploymentByNameOperationPolicy 'Microsoft.ApiManagement/service/apis/operations/policies@2022-08-01' = if (updateAzureOpenAIApi && authMode != 'preserve') {
   name: 'policy'
   parent: openAIDeploymentByNameOperation
   properties: {
@@ -678,7 +719,7 @@ resource openAIDeploymentByNameOperationPolicy 'Microsoft.ApiManagement/service/
 //    APIs — OpenAI Realtime WebSocket
 // =====================================================================
 
-module apimOpenAIRealtimeApi '../modules/apim/api.bicep' = if (updateOpenAIRealtimeApi) {
+module apimOpenAIRealtimeApi '../modules/apim/api.bicep' = if (updateOpenAIRealtimeApi && authMode != 'preserve') {
   name: 'openai-realtime-ws-api-upgrade'
   params: {
     serviceName: apimService.name
@@ -686,7 +727,7 @@ module apimOpenAIRealtimeApi '../modules/apim/api.bicep' = if (updateOpenAIRealt
     path: 'openai/realtime'
     apiRevision: '1'
     apiDisplayName: 'Azure OpenAI Realtime API'
-    subscriptionRequired: true
+    subscriptionRequired: authMode != 'entra'
     subscriptionKeyName: 'api-key'
     openApiSpecification: 'NA'
     apiDescription: 'Access Azure OpenAI Realtime API for real-time voice and text conversion.'

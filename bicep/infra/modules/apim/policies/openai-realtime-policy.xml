@@ -1,6 +1,12 @@
 <policies>
     <inbound>
         <base />
+        <!-- Authenticate and authorize the original workload before acquiring gateway backend credentials. -->
+        <include-fragment fragment-id="security-handler" />
+        <include-fragment fragment-id="resolve-access-contract" />
+        <!-- Request-based quotas for non-token APIs; the token limiter is reserved for LLM inference. -->
+        <set-variable name="assetKind" value="service" />
+        <include-fragment fragment-id="enforce-contract-quota" />
         
         <!-- Deleting api-key header to it is not passed to OpenAI endpoint-->
         <set-header name="api-key" exists-action="delete" />
@@ -13,10 +19,10 @@
         
         <!-- Set the backend service URL based on the product name -->
         <choose>
-            <when condition="@(context.Product.Name == "REPLACE1")">
+            <when condition="@(context.Product?.Name == "REPLACE1")">
                 <set-backend-service base-url="wss://REPLACE.openai.azure.com/openai/realtime" />
             </when>
-            <when condition="@(context.Product.Name == "REPLACE2")">
+            <when condition="@(context.Product?.Name == "REPLACE2")">
                 <set-backend-service base-url="wss://REPLACE.openai.azure.com/openai/realtime" />
             </when>
             <otherwise>

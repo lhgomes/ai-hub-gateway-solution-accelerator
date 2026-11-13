@@ -30,6 +30,20 @@
         - skipBackendUrlRewrite (optional): When set, skips URL rewriting
     -->
     
+    <!-- Re-check contract pool grants on every initial and retry hop. Explicit backend
+         overrides and alias fallbacks must not bypass the normalized caller's grant. -->
+    <choose>
+      <when condition="@{
+        if (context.Variables.GetValueOrDefault&lt;string&gt;(&quot;auth-type&quot;, &quot;&quot;) != &quot;jwt&quot;) return false;
+        var allowed = context.Variables.GetValueOrDefault&lt;string&gt;(&quot;allowedBackendPools&quot;, &quot;&quot;);
+        var selected = context.Variables.GetValueOrDefault&lt;string&gt;(&quot;targetBackendPool&quot;, &quot;&quot;);
+        return string.IsNullOrWhiteSpace(allowed) || string.IsNullOrWhiteSpace(selected)
+          || !allowed.Split(',').Any(p =&gt; p.Trim().Equals(selected, StringComparison.OrdinalIgnoreCase));
+      }">
+        <return-response><set-status code="403" reason="Backend pool not granted by Access Contract" /></return-response>
+      </when>
+    </choose>
+
     <!-- Configure authentication based on targetAuthType -->
     <choose>
         <when condition="@(context.Variables.GetValueOrDefault<string>("targetAuthType", "") == "non-llm-request")">

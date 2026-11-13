@@ -24,6 +24,15 @@
         <set-header name="Accept-Encoding" exists-action="override">
             <value>identity</value>
         </set-header>
+        <!-- Entra-only access is authenticated before acquiring any backend identity. -->
+        <choose>
+            <when condition="@(&quot;{{Gateway-Auth-Mode}}&quot; == &quot;entra&quot;)">
+                <include-fragment fragment-id="security-handler" />
+        <include-fragment fragment-id="resolve-access-contract" />
+            </when>
+        </choose>
+        <set-variable name="assetKind" value="agent" />
+        <include-fragment fragment-id="enforce-contract-quota" />
         <!-- Backend (agent) authentication via managed identity -->
         <!-- {backendAuth} -->
         <!-- Usage metric -->

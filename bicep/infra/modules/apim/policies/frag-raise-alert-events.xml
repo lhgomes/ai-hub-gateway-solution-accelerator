@@ -127,7 +127,7 @@
                         <dimension name="statusCode" value="@(context.Variables.GetValueOrDefault<string>("_alertStatusCode", "0"))" />
 
                         <!-- Use case or agentic platform name (access contract / product) -->
-                        <dimension name="productName" value="@(context.Product?.Name?.ToString() ?? "Portal-Admin")" />
+                        <dimension name="productName" value="@(context.Variables.GetValueOrDefault<string>("contractId", context.Product?.Name ?? "Portal-Admin"))" />
 
                         <!-- Target model or deployment name (when known) -->
                         <dimension name="deploymentName" value="@((string)context.Variables.GetValueOrDefault<string>("requestedModel", "NA"))" />

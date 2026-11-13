@@ -1,12 +1,14 @@
 <policies>
     <inbound>
         <base />
+        <include-fragment fragment-id="security-handler" />
+        <include-fragment fragment-id="resolve-access-contract" />
 
         <!-- Unified AI orchestration; shared fragments handle model access, routing, auth and usage. -->
 
         <!-- Validate product context -->
         <choose>
-            <when condition="@(context.Product == null)">
+            <when condition="@(context.Product == null && context.Variables.GetValueOrDefault<string>("auth-type", "") != "jwt")">
                 <return-response>
                     <set-status code="401" reason="Unauthorized" />
                     <set-header name="Content-Type" exists-action="override">
@@ -32,17 +34,17 @@
         <!--         apiTypeOverrideBackend, and skipBackendUrlRewrite [Unified AI specific] -->
         <include-fragment fragment-id="request-processor" />
 
-        <!-- Step 4: Frontend authentication (API Key + optional JWT) [Unified AI specific] -->
-        <include-fragment fragment-id="security-handler" />
+        <!-- Authentication was performed before any model or metadata processing. -->
 
         <!-- Enforce Responses API ownership; hydrate the model from cache for GET/DELETE routing. -->
         <include-fragment fragment-id="responses-id-security" />
 
         <!-- Step 5: Model access control per product [SHARED with Azure OpenAI / Universal LLM] -->
         <include-fragment fragment-id="validate-model-access" />
+        <include-fragment fragment-id="enforce-contract-quota" />
 
         <!-- RBAC: Set allowed backend pools (comma-separated pool IDs, empty = all pools allowed) -->
-        <set-variable name="allowedBackendPools" value="" />
+        <set-variable name="allowedBackendPools" value="@(context.Variables.GetValueOrDefault&lt;string&gt;(&quot;allowedBackendPools&quot;, &quot;&quot;))" />
         <!-- Set default backend pool (empty = return error for unmapped models) -->
         <set-variable name="defaultBackendPool" value="" />
 

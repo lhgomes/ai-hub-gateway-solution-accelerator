@@ -278,6 +278,9 @@ param enableOpenAIRealtime bool = true
 @description('Enable Microsoft Entra ID authentication for API Management.')
 param entraAuth bool = true
 
+@description('Complete desired-state JWT Access Contract registry for the gateway. Each entry: { id, callers: [service-principal-object-ID], apis: [API-ID], allowedModels: [model], allowedBackendPools: [pool], tokensPerMinute, tokenQuota, tokenQuotaPeriod, requestsPerMinute, requestQuota, quotaPeriodSeconds }. A net-new deployment must supply all grants; empty registry denies all.')
+param gatewayAccessContracts array = []
+
 @description('Enable API Center for API governance and discovery.')
 param enableAPICenter bool = true
 
@@ -650,6 +653,7 @@ module resources './resources.bicep' = {
     enableAIGatewayPiiRedaction: enableAIGatewayPiiRedaction
     enableOpenAIRealtime: enableOpenAIRealtime
     entraAuth: entraAuth
+    gatewayAccessContracts: gatewayAccessContracts
     enableAPICenter: enableAPICenter
     enableManagedRedis: enableManagedRedis
     azureMonitorLogSettings: azureMonitorLogSettings

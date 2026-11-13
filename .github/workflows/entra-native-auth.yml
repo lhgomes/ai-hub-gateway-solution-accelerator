@@ -1,0 +1,31 @@
+name: Entra native authentication validation
+
+on:
+  push:
+    branches: [feature/entra-native-auth]
+  pull_request:
+    paths:
+      - 'bicep/infra/**'
+      - 'validation/tests/test_entra_native_auth.py'
+      - '.github/workflows/entra-native-auth.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate integrated Entra contract invariants
+        run: python -m unittest discover -s validation/tests -p test_entra_native_auth.py -v
+      - name: Compile existing gateway and contract Bicep
+        run: |
+          az bicep build --file bicep/infra/main.bicep --stdout > /dev/null
+          az bicep build --file bicep/infra/citadel-access-contracts/main.bicep --stdout > /dev/null
+          az bicep build --file bicep/infra/citadel-publish-contracts/main.bicep --stdout > /dev/null
+          az bicep build --file bicep/infra/llm-backend-onboarding/main.bicep --stdout > /dev/null
+          az bicep build --file bicep/infra/apim-gateway-upgrade/main.bicep --stdout > /dev/null

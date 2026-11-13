@@ -1,6 +1,12 @@
 <policies>
     <inbound>
         <base />
+        <!-- Authenticate and authorize the original workload before acquiring gateway backend credentials. -->
+        <include-fragment fragment-id="security-handler" />
+        <include-fragment fragment-id="resolve-access-contract" />
+        <!-- Request-based quotas for non-token APIs; the token limiter is reserved for LLM inference. -->
+        <set-variable name="assetKind" value="service" />
+        <include-fragment fragment-id="enforce-contract-quota" />
         <set-header name="api-key" exists-action="delete" />
         <authentication-managed-identity resource="https://cognitiveservices.azure.com" output-token-variable-name="msi-access-token" client-id="{{uami-client-id}}" ignore-error="false" />
         <set-header name="Authorization" exists-action="override">

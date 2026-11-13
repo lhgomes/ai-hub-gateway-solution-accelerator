@@ -53,10 +53,10 @@
             <choose>
                 <when condition="@(!string.IsNullOrEmpty(context.Variables.GetValueOrDefault<string>("newResponseId", string.Empty)))">
                     <cache-store-value
-                        key="@("response-id-" + (string)context.Variables["newResponseId"])"
+                        key="@((context.Variables.GetValueOrDefault<string>("auth-type", "") == "jwt" ? "response-id-jwt-" : "response-id-") + (string)context.Variables["newResponseId"])"
                         value="@{
-                            var subId = context.Subscription?.Id ?? string.Empty;
-                            var productId = context.Product?.Id;
+                            var subId = context.Variables.GetValueOrDefault<string>("callerId", context.Subscription?.Id ?? string.Empty);
+                            var productId = context.Variables.GetValueOrDefault<string>("contractId", context.Product?.Id);
                             if (string.IsNullOrEmpty(productId)) { productId = "NA"; }
                             var model = context.Variables.GetValueOrDefault<string>("requestedModel", string.Empty);
                             var userId = context.Variables.GetValueOrDefault<string>("user-id", subId);
@@ -70,7 +70,7 @@
                     </set-header>
 
                     <trace source="Responses-API-Security" severity="information">
-                        <message>@($"Cached response-id ownership: id={context.Variables.GetValueOrDefault<string>("newResponseId", string.Empty)} sub={context.Subscription?.Id ?? string.Empty} product={context.Product?.Id ?? "NA"} model={context.Variables.GetValueOrDefault<string>("requestedModel", string.Empty)}")</message>
+                        <message>@($"Cached response-id ownership: id={context.Variables.GetValueOrDefault<string>("newResponseId", string.Empty)} sub={context.Variables.GetValueOrDefault<string>("callerId", context.Subscription?.Id ?? string.Empty)} product={context.Variables.GetValueOrDefault<string>("contractId", context.Product?.Id ?? "NA")} model={context.Variables.GetValueOrDefault<string>("requestedModel", string.Empty)}")</message>
                     </trace>
                 </when>
             </choose>
