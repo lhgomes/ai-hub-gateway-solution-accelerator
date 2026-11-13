@@ -59,7 +59,7 @@ var defaultPolicyXml = loadTextContent('../policies/baseline-mcp-policy.xml')
 // subscription gate (standard subscription headers are stripped by APIM before that hop).
 var forwardKeySnippet = '        <set-header name="${sourceSubscriptionKeyHeaderName}" exists-action="override">\n            <value>@(context.Subscription?.Key ?? "")</value>\n        </set-header>\n'
 var baselineWithForward = replace(defaultPolicyXml, '    </inbound>', '${forwardKeySnippet}    </inbound>')
-var entraPolicyXml = replace(replace(defaultPolicyXml, '<include-fragment fragment-id="security-handler" />', '<include-fragment fragment-id="entra-contract-auth" />\\n        <include-fragment fragment-id="entra-contract-request-limits" />'), 'fragment-id="mcp-usage"', 'fragment-id="entra-mcp-usage"')
+var entraPolicyXml = replace(replace(defaultPolicyXml, '<include-fragment fragment-id="security-handler" />', '<include-fragment fragment-id="entra-contract-auth" />\n        <include-fragment fragment-id="entra-contract-request-limits" />'), 'fragment-id="mcp-usage"', 'fragment-id="entra-mcp-usage"')
 var effectivePolicyXml = entraOnly ? entraPolicyXml : (!empty(mcpPolicyXml) ? mcpPolicyXml : (forwardSubscriptionKeyToSource ? baselineWithForward : defaultPolicyXml))
 
 // Query-string key name mirrors the header: the APIM-native header uses the 'subscription-key' query param,
