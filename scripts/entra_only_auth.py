@@ -74,7 +74,7 @@ def choose_contracts(config):
             for oid in c["callers"]
         )
         apis = " || ".join('(api == ' + json.dumps(api) + ')' for api in c["apis"])
-        condition = f"@{{ var caller = context.Variables.GetValueOrDefault<string>(\"callerId\", \"\"); var api = context.Api.Id; return ({apps}) &amp;&amp; ({apis}); }}"
+        condition = f"@{{ var caller = context.Variables.GetValueOrDefault<string>(\"callerId\", \"\"); var api = context.Api.Id; return ({apps}) && ({apis}); }}"
         clauses.append(f"""<when condition={expr(condition)}>
   <set-variable name="contractId" value={expr(c["id"])} />
   <set-variable name="allowedModels" value={expr(",".join(c["allowedModels"]))} />
