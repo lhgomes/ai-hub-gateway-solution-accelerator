@@ -137,7 +137,7 @@ class EntraOnlyGenerationTests(unittest.TestCase):
             quota = (Path(d) / "frag-entra-contract-request-limits.xml").read_text()
             self.assertIn("rate-limit-by-key", quota)
             self.assertIn("quota-by-key", quota)
-            self.assertIn("context.Api.Id", quota)
+            self.assertIn("assetKind", quota)
             for name in ("mcp", "a2a"):
                 usage = (Path(d) / f"frag-entra-{name}-usage.xml").read_text()
                 self.assertIn("contractId", usage)
