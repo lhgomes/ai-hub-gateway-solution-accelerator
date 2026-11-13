@@ -87,7 +87,7 @@ var gatewayA2aUrl = '${apim.properties.gatewayUrl}/${agentPath}'
 var cardRewriteElement = '<choose><when condition="@(context.Response.Headers.GetValueOrDefault(&quot;Content-Type&quot;,&quot;&quot;).Contains(&quot;json&quot;))"><find-and-replace from="${jsonRpcBackendUrl}" to="${gatewayA2aUrl}" /></when></choose>'
 
 var defaultPolicyXml = replace(replace(loadTextContent('../policies/baseline-a2a-policy.xml'), '<!-- {backendAuth} -->', backendAuthElement), '<!-- {cardRewrite} -->', cardRewriteElement)
-var entraPolicyXml = replace(replace(defaultPolicyXml, '<inbound>\n        <base />', '<inbound>\n        <base />\n        <include-fragment fragment-id="entra-contract-auth" />\n        <include-fragment fragment-id="entra-contract-request-limits" />'), 'fragment-id="a2a-usage"', 'fragment-id="entra-a2a-usage"')
+var entraPolicyXml = replace(replace(defaultPolicyXml, '<inbound>\n        <base />', '<inbound>\n        <base />\n        <include-fragment fragment-id="entra-contract-auth" />\n        <set-variable name="assetKind" value="agent" />\n        <include-fragment fragment-id="entra-contract-request-limits" />'), 'fragment-id="a2a-usage"', 'fragment-id="entra-a2a-usage"')
 var effectivePolicyXml = entraOnly ? entraPolicyXml : (empty(a2aPolicyXml) ? defaultPolicyXml : a2aPolicyXml)
 var effectiveAgentId = empty(agentId) ? agentName : agentId
 
