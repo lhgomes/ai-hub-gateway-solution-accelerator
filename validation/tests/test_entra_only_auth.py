@@ -36,7 +36,7 @@ class EntraOnlyGenerationTests(unittest.TestCase):
     def test_generation_and_fragment_integrity(self):
         with tempfile.TemporaryDirectory() as d:
             paths = auth.generate(sample(), Path(d))
-            self.assertEqual(len(paths), 9)
+            self.assertEqual(len(paths), 12)
             for name in paths:
                 ET.parse(Path(d) / name)
             fragment = (Path(d) / "frag-entra-contract-auth.xml").read_text()
@@ -68,7 +68,7 @@ class EntraOnlyGenerationTests(unittest.TestCase):
     def test_undeclared_apis_rejected(self):
         cfg = sample()
         cfg["contracts"][0]["apis"] = ["unknown-api"]
-        with self.assertRaisesRegex(ValueError, "verified inference APIs"):
+        with self.assertRaisesRegex(ValueError, "declared published asset"):
             auth.validate(cfg)
 
     def test_empty_grants_and_unrestricted_models_rejected(self):
@@ -119,6 +119,61 @@ class EntraOnlyGenerationTests(unittest.TestCase):
                 "properties": {"subscriptionRequired": False}}
         with self.assertRaisesRegex(ValueError, "APIM Products"):
             deployment.preflight(rid, ["unified-ai-api"], product_rest)
+
+
+    def test_mcp_a2a_contract_governance(self):
+        cfg = sample()
+        cfg["assetKinds"] = {"weather-tool": "tool", "hr-agent": "agent"}
+        cfg["contracts"][0]["apis"] += ["weather-tool", "hr-agent"]
+        cfg["contracts"][0].update({
+            "requestsPerMinute": 60, "requestQuota": 10000,
+            "quotaPeriodSeconds": 2592000,
+        })
+        with tempfile.TemporaryDirectory() as d:
+            files = auth.generate(cfg, Path(d))
+            self.assertEqual(len(files), 12)
+            for item in files:
+                ET.parse(Path(d) / item)
+            quota = (Path(d) / "frag-entra-contract-request-limits.xml").read_text()
+            self.assertIn("rate-limit-by-key", quota)
+            self.assertIn("quota-by-key", quota)
+            self.assertIn("context.Api.Id", quota)
+            for name in ("mcp", "a2a"):
+                usage = (Path(d) / f"frag-entra-{name}-usage.xml").read_text()
+                self.assertIn("contractId", usage)
+                self.assertIn("callerId", usage)
+
+    def test_asset_kind_and_quota_validation(self):
+        cfg = sample()
+        cfg["assetKinds"] = {"weather-tool": "tool"}
+        cfg["contracts"][0]["apis"] += ["weather-tool"]
+        with self.assertRaisesRegex(ValueError, "requestsPerMinute"):
+            auth.validate(cfg)
+        cfg["contracts"][0].update({
+            "requestsPerMinute": 30, "requestQuota": 500,
+            "quotaPeriodSeconds": 300,
+        })
+        auth.validate(cfg)
+        cfg["assetKinds"]["weather-tool"] = "unexpected"
+        with self.assertRaisesRegex(ValueError, "assetKinds"):
+            auth.validate(cfg)
+
+    def test_publisher_modules_use_jwt_mode(self):
+        base = ROOT / "bicep/infra/citadel-publish-contracts"
+        main = (base / "main.bicep").read_text()
+        self.assertIn("authMode?", main)
+        for module in ("publishMcpExisting.bicep", "publishMcpFromApi.bicep",
+                       "publishA2aAgent.bicep"):
+            source = (base / "modules" / module).read_text()
+            self.assertIn("param entraOnly bool = false", source)
+            self.assertIn("entra-contract-auth", source)
+            self.assertIn("entra-contract-request-limits", source)
+            self.assertIn("subscriptionRequired: entraOnly ? false :", source)
+
+    def test_foundry_keyless_connection(self):
+        bicep = (ROOT / "bicep/infra/entra-only-auth/foundry-connection.bicep").read_text()
+        self.assertIn("includeSubscriptionKey: false", bicep)
+        self.assertIn("ProjectManagedIdentity", bicep)
 
     def test_caller_token_does_not_become_backend_key(self):
         xml = auth.auth_fragment(sample())
