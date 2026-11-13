@@ -30,6 +30,8 @@ FRAGMENTS = {
     "entra-contract-request-limits": "frag-entra-contract-request-limits.xml",
     "entra-mcp-usage": "frag-entra-mcp-usage.xml",
     "entra-a2a-usage": "frag-entra-a2a-usage.xml",
+    "entra-validate-model-access": "frag-entra-validate-model-access.xml",
+    "entra-raise-alert-events": "frag-entra-raise-alert-events.xml",
     "entra-authorize-target-pool": "frag-entra-authorize-target-pool.xml",
     "entra-responses-id-security": "frag-entra-responses-id-security.xml",
     "entra-responses-id-cache-store": "frag-entra-responses-id-cache-store.xml",
