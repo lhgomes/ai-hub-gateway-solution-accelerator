@@ -1,0 +1,30 @@
+name: Entra ID-only authentication policy validation
+
+on:
+  push:
+    branches:
+      - feature/entra-id-only-auth
+    paths:
+      - "scripts/entra_only_auth.py"
+      - "validation/tests/test_entra_only_auth.py"
+      - "bicep/infra/entra-only-auth/**"
+      - ".github/workflows/entra-only-auth.yml"
+  pull_request:
+    paths:
+      - "scripts/entra_only_auth.py"
+      - "validation/tests/test_entra_only_auth.py"
+      - "bicep/infra/entra-only-auth/**"
+
+permissions:
+  contents: read
+
+jobs:
+  policy-generation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate isolated Entra policies and fail-closed grants
+        run: python -m unittest discover -s validation/tests -p "test_entra_only_auth.py" -v
