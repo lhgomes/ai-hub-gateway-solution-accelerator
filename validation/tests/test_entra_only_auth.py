@@ -36,7 +36,7 @@ class EntraOnlyGenerationTests(unittest.TestCase):
     def test_generation_and_fragment_integrity(self):
         with tempfile.TemporaryDirectory() as d:
             paths = auth.generate(sample(), Path(d))
-            self.assertEqual(len(paths), 12)
+            self.assertEqual(len(paths), 14)
             for name in paths:
                 ET.parse(Path(d) / name)
             fragment = (Path(d) / "frag-entra-contract-auth.xml").read_text()
@@ -48,6 +48,8 @@ class EntraOnlyGenerationTests(unittest.TestCase):
                 policy = (Path(d) / f"api-{api}-policy.xml").read_text()
                 self.assertIn('fragment-id="entra-contract-auth"', policy)
                 self.assertIn('fragment-id="entra-contract-limits"', policy)
+                self.assertIn('fragment-id="entra-validate-model-access"', policy)
+                self.assertIn('fragment-id="entra-raise-alert-events"', policy)
                 self.assertIn('fragment-id="entra-authorize-target-pool"', policy)
                 self.assertIn('fragment-id="entra-responses-id-security"', policy)
                 self.assertNotIn('fragment-id="security-handler"', policy)
@@ -131,7 +133,7 @@ class EntraOnlyGenerationTests(unittest.TestCase):
         })
         with tempfile.TemporaryDirectory() as d:
             files = auth.generate(cfg, Path(d))
-            self.assertEqual(len(files), 12)
+            self.assertEqual(len(files), 14)
             for item in files:
                 ET.parse(Path(d) / item)
             quota = (Path(d) / "frag-entra-contract-request-limits.xml").read_text()
