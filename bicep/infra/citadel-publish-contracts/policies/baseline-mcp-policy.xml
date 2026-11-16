@@ -21,6 +21,9 @@
         <set-variable name="publishedBackendId" value="@(context.Api?.Name?.ToString() ?? "NA")" />
         <!-- Authentication (API key + optional JWT per access-contract product) -->
         <include-fragment fragment-id="security-handler" />
+        <include-fragment fragment-id="resolve-access-contract" />
+        <set-variable name="assetKind" value="tool" />
+        <include-fragment fragment-id="enforce-contract-quota" />
         <!-- Usage metric (inbound only; see streaming note above) -->
         <include-fragment fragment-id="mcp-usage" />
     </inbound>

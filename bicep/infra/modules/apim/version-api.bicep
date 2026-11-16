@@ -42,6 +42,9 @@ param releaseContent string = loadTextContent('../../../../release.json')
 @description('Whether to add the GET backend-contract operation that returns the active LLM backend routing contract via the backend-contract policy fragment.')
 param includeBackendContractOperation bool = true
 
+@description('Require JWT and an explicit Access Contract grant for GET /version/backend-contract. The public release version operation is unchanged.')
+param requireBackendContractAuth bool = false
+
 @description('The id of the policy fragment that returns the active backend contract. Created/updated by the primary deployment and the LLM onboarding submodule.')
 param backendContractFragmentId string = 'backend-contract'
 
@@ -83,7 +86,7 @@ var versionApiPolicyXml = '${versionApiPolicyPrefix}${releaseContent}${versionAp
 
 // Operation policy for the backend-contract operation. It simply includes the dynamically
 // generated `backend-contract` fragment, which emits the active routing contract as JSON.
-var backendContractOperationPolicyXml = replace('''
+var backendContractOperationPolicyXml = replace(replace('''
 <policies>
     <inbound>
         <base />
@@ -98,7 +101,7 @@ var backendContractOperationPolicyXml = replace('''
     <on-error>
         <base />
     </on-error>
-</policies>''', 'FRAGMENTID', backendContractFragmentId)
+</policies>''', 'FRAGMENTID', backendContractFragmentId), '<include-fragment fragment-id="${backendContractFragmentId}" />', requireBackendContractAuth ? '<include-fragment fragment-id="security-handler" /><include-fragment fragment-id="resolve-access-contract" /><include-fragment fragment-id="${backendContractFragmentId}" />' : '<include-fragment fragment-id="${backendContractFragmentId}" />')
 
 // ------------------
 //    RESOURCES

@@ -48,8 +48,8 @@
     <set-variable name="deploymentName" value="@((string)context.Variables["deployment-id"])" />
     <!-- NOTE: azure-openai-emit-token-metric has limited support to custom dimensions -->
     <llm-emit-token-metric namespace="ai-streaming">
-        <dimension name="SubscriptionId" value="@(context.Subscription?.Id ?? "Portal-Admin-Sub")" />
-        <dimension name="productName" value="@(context.Product?.Name?.ToString() ?? "Portal-Admin")" />
+        <dimension name="SubscriptionId" value="@(context.Variables.GetValueOrDefault<string>("callerId", context.Subscription?.Id ?? "Portal-Admin-Sub"))" />
+        <dimension name="productName" value="@(context.Variables.GetValueOrDefault<string>("contractId", context.Product?.Name?.ToString() ?? "Portal-Admin"))" />
         <dimension name="routeName" value="@((string)context.Variables.GetValueOrDefault<string>("routeName", "Streaming"))" />
         <dimension name="routeLocation" value="@((string)context.Variables.GetValueOrDefault<string>("routeLocation", "DefaultStreaming"))" />
         <dimension name="deploymentName" value="@((string)context.Variables.GetValueOrDefault<string>("deploymentName", "Streaming"))" />
