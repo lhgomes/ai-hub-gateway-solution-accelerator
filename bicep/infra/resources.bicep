@@ -275,6 +275,9 @@ param enableOpenAIRealtime bool = true
 @description('Enable Microsoft Entra ID authentication for API Management.')
 param entraAuth bool = true
 
+@description('Complete JWT Access Contract registry deployed with APIM; empty denies all callers.')
+param gatewayAccessContracts array = []
+
 @description('Enable API Center for API governance and discovery.')
 param enableAPICenter bool = true
 
@@ -984,6 +987,7 @@ module apim './modules/apim/apim.bicep' = {
     managedIdentityName: apimManagedIdentity.outputs.managedIdentityName
     keyVaultName: keyVault.outputs.keyVaultName
     entraAuth: entraAuth
+    gatewayAccessContracts: gatewayAccessContracts
     clientAppId: resolvedEntraClientId
     tenantId: resolvedEntraTenantId
     audience: resolvedEntraAudience
@@ -1022,7 +1026,7 @@ module apim './modules/apim/apim.bicep' = {
     enableUnifiedAiApi: enableUnifiedAiApi
     enableJwtAuth: entraAuth
     jwtTenantId: resolvedEntraTenantId
-    jwtAppRegistrationId: resolvedEntraClientId
+    jwtAppRegistrationId: entraAuth ? resolvedEntraAudience : resolvedEntraClientId
   }
 }
 

@@ -32,7 +32,7 @@
             // If no allowed models specified, allow all models
             if (string.IsNullOrWhiteSpace(allowedModelsVar))
             {
-                return false; // Don't block
+                return context.Variables.GetValueOrDefault<string>("auth-type", "") == "jwt"; // fail closed for JWT contracts
             }
             
             var allowedModels = allowedModelsVar.Split(',').Select(m => m.Trim().ToLowerInvariant()).ToArray();
@@ -48,7 +48,7 @@
                     <emit-metric name="AI Gateway Alert" value="1" namespace="ai-gateway-alerts">
                         <dimension name="alertType" value="auth-failure" />
                         <dimension name="statusCode" value="403" />
-                        <dimension name="productName" value="@(context.Product?.Name?.ToString() ?? "Portal-Admin")" />
+                        <dimension name="productName" value="@(context.Variables.GetValueOrDefault<string>("contractId", context.Product?.Name ?? "Portal-Admin"))" />
                         <dimension name="deploymentName" value="@((string)context.Variables.GetValueOrDefault<string>("requestedModel", "NA"))" />
                         <dimension name="backendId" value="@((string)context.Variables.GetValueOrDefault<string>("selected-backend", "NA"))" />
                     </emit-metric>

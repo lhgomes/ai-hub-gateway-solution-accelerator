@@ -1,4 +1,47 @@
 <fragment>
+  <choose>
+    <when condition="@(&quot;{{Gateway-Auth-Mode}}&quot; == &quot;entra&quot;)">
+    <!-- Net-new Entra path: the same shared security-handler used by every gateway API. -->
+    <validate-jwt header-name="Authorization" require-scheme="Bearer" output-token-variable-name="validated-jwt"
+                  failed-validation-httpcode="401" failed-validation-error-message="A valid Entra access token is required.">
+      <openid-config url="{{JWT-OpenIdConfigUrl}}" />
+      <openid-config url="{{JWT-OpenIdConfigUrlV1}}" />
+      <audiences><audience>{{audience}}</audience><audience>{{JWT-AppRegistrationId}}</audience></audiences>
+      <issuers><issuer>{{JWT-Issuer}}</issuer><issuer>{{JWT-IssuerV1}}</issuer></issuers>
+      <required-claims>
+        <claim name="tid" match="all"><value>{{JWT-TenantId}}</value></claim>
+      </required-claims>
+    </validate-jwt>
+
+    <set-variable name="callerId" value="@{
+      var jwt = (Jwt)context.Variables[&quot;validated-jwt&quot;];
+      var tenant = jwt.Claims.GetValueOrDefault(&quot;tid&quot;, &quot;&quot;);
+      var oid = jwt.Claims.GetValueOrDefault(&quot;oid&quot;, &quot;&quot;);
+      if (string.IsNullOrWhiteSpace(tenant) || string.IsNullOrWhiteSpace(oid)) return &quot;&quot;;
+      return tenant.ToLowerInvariant() + &quot;:&quot; + oid.ToLowerInvariant();
+    }" />
+    <choose>
+      <when condition="@(string.IsNullOrEmpty(context.Variables.GetValueOrDefault&lt;string&gt;(&quot;callerId&quot;, &quot;&quot;)))">
+        <return-response><set-status code="403" reason="Managed Identity object ID is required" /></return-response>
+      </when>
+    </choose>
+    <!-- The API-level policy includes resolve-access-contract immediately after
+         this shared authentication fragment (policy fragments cannot include other fragments). -->
+    <set-variable name="callerOid" value="@(((Jwt)context.Variables[&quot;validated-jwt&quot;]).Claims.GetValueOrDefault(&quot;oid&quot;, &quot;&quot;).ToLowerInvariant())" />
+    <set-variable name="user-id" value="@((string)context.Variables[&quot;callerId&quot;])" />
+    <set-variable name="consumerId" value="@((string)context.Variables[&quot;callerId&quot;])" />
+    <set-variable name="appId" value="@((string)context.Variables[&quot;callerId&quot;])" />
+    <!-- Resolved Access Contract ID is applied by the API-level resolver. -->
+    <set-variable name="auth-type" value="jwt" />
+    <set-variable name="enableResponseHeaders" value="@(true)" />
+    <!-- Never forward a gateway-audience token to a downstream backend. -->
+    <set-header name="Authorization" exists-action="delete" />
+    <set-header name="api-key" exists-action="delete" />
+    <set-header name="Ocp-Apim-Subscription-Key" exists-action="delete" />
+
+    </when>
+    <otherwise>
+
     <!--
         Fragment: Security Handler (Unified)
         Purpose: Provides unified authentication across all AI Hub Gateway API endpoints
@@ -258,4 +301,7 @@
     <trace source="Authentication-Complete" severity="information">
         <message>@($"Unified AI - Auth: {context.Variables.GetValueOrDefault<string>("auth-type", "none")} | User: {context.Variables.GetValueOrDefault<string>("user-id", "anonymous")} | Roles: {context.Variables.GetValueOrDefault<string>("jwt-roles", "none")} | Sub: {context.Variables.GetValueOrDefault<string>("subscription-name", "none")}")</message>
     </trace>
+
+    </otherwise>
+  </choose>
 </fragment>

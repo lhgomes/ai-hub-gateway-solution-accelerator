@@ -1,0 +1,28 @@
+{
+  "contracts": [
+    {
+      "id": "LLM-HR-DEV",
+      "callers": [
+        "11111111-2222-3333-4444-555555555555"
+      ],
+      "apis": [
+        "universal-llm-api",
+        "azure-openai-api",
+        "unified-ai-api",
+        "weather-tool"
+      ],
+      "allowedModels": [
+        "gpt-4.1"
+      ],
+      "allowedBackendPools": [
+        "foundry-pool"
+      ],
+      "tokensPerMinute": 1000,
+      "tokenQuota": 100000,
+      "tokenQuotaPeriod": "Monthly",
+      "requestsPerMinute": 60,
+      "requestQuota": 10000,
+      "quotaPeriodSeconds": 2592000
+    }
+  ]
+}

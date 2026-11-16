@@ -6,6 +6,7 @@
         
         <!-- Step 1: Unified authentication (API Key + optional JWT per-product) -->
         <include-fragment fragment-id="security-handler" />
+        <include-fragment fragment-id="resolve-access-contract" />
         
         <!-- Step 2: Extract and validate model parameter from request -->
         <include-fragment fragment-id="set-llm-requested-model" />
@@ -33,7 +34,7 @@
 
         <!-- Step 4: Configure RBAC and default routing behavior -->
         <!-- RBAC: Set allowed backend pools (comma-separated pool IDs, empty = all pools allowed) -->
-        <set-variable name="allowedBackendPools" value="" />
+        <set-variable name="allowedBackendPools" value="@(context.Variables.GetValueOrDefault&lt;string&gt;(&quot;allowedBackendPools&quot;, &quot;&quot;))" />
         
         <!-- Set default backend pool (empty = return error for unmapped models) -->
         <set-variable name="defaultBackendPool" value="" />
@@ -45,6 +46,7 @@
 
         <!-- Validate model access based on allowedModels -->
         <include-fragment fragment-id="validate-model-access" />
+        <include-fragment fragment-id="enforce-contract-quota" />
 
         <!-- Step 4.1: Load backend pool configurations (real pools + alias virtual pools) -->
         <include-fragment fragment-id="set-backend-pools" />

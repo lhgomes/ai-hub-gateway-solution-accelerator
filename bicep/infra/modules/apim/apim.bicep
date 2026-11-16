@@ -3,6 +3,9 @@ param location string = resourceGroup().location
 param tags object = {}
 param entraAuth bool = false
 
+@description('Complete desired-state JWT Access Contracts for this APIM gateway. Apply atomically, never incrementally.')
+param gatewayAccessContracts array = []
+
 @minLength(1)
 param publisherEmail string = 'noreply@microsoft.com'
 
@@ -478,6 +481,7 @@ module apiUnifiedAI './unified-ai-api.bicep' = if (enableUnifiedAiApi) {
   params: {
     apiManagementName: apimService.name
     enabled: enableUnifiedAiApi
+    entraAuth: entraAuth
     apimLoggerId: apimAzMonitorLogger.id
     azureMonitorLogSettings: azureMonitorLogSettings
   }
@@ -496,6 +500,7 @@ module apiReleaseVersion './version-api.bicep' = {
   name: 'release-version-api'
   params: {
     apiManagementName: apimService.name
+    requireBackendContractAuth: entraAuth
   }
   dependsOn: [
     // The backend-contract operation includes the dynamically generated
@@ -511,6 +516,18 @@ module apiReleaseVersion './version-api.bicep' = {
 // When enableJwtAuth is false, placeholders are used so deployment passes.
 // JWT enforcement is controlled per-product via the 'jwtRequired' context variable
 // set in each Access Contract's product policy.
+
+// Centralized contract configuration is a single authoritative desired-state value.
+// Base64 avoids embedding user-configured JSON quotes inside APIM C# policy expressions.
+resource gatewayAuthModeNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = {
+  name: 'Gateway-Auth-Mode'
+  parent: apimService
+  properties: {
+    displayName: 'Gateway-Auth-Mode'
+    value: entraAuth ? 'entra' : 'subscription'
+  }
+}
+
 
 var jwtTenantIdValue = !empty(jwtTenantId) ? jwtTenantId : subscription().tenantId
 var jwtAppRegIdValue = !empty(jwtAppRegistrationId) ? jwtAppRegistrationId : 'not-configured'
@@ -548,6 +565,24 @@ resource jwtOpenIdConfigUrlNamedValue 'Microsoft.ApiManagement/service/namedValu
   properties: {
     displayName: 'JWT-OpenIdConfigUrl'
     value: enableJwtAuth ? '${environment().authentication.loginEndpoint}${jwtTenantIdValue}/v2.0/.well-known/openid-configuration' : 'not-configured'
+  }
+}
+
+resource jwtOpenIdConfigUrlV1NamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = {
+  name: 'JWT-OpenIdConfigUrlV1'
+  parent: apimService
+  properties: {
+    displayName: 'JWT-OpenIdConfigUrlV1'
+    value: enableJwtAuth ? '${environment().authentication.loginEndpoint}${jwtTenantIdValue}/.well-known/openid-configuration' : 'not-configured'
+  }
+}
+
+resource jwtIssuerV1NamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = {
+  name: 'JWT-IssuerV1'
+  parent: apimService
+  properties: {
+    displayName: 'JWT-IssuerV1'
+    value: enableJwtAuth ? 'https://sts.windows.net/${jwtTenantIdValue}/' : 'not-configured'
   }
 }
 
@@ -775,6 +810,7 @@ module policyFragments './policy-fragments.bicep' = {
     enablePIIAnonymization: enablePIIAnonymization
     enableAIModelInference: enableAIModelInference
     enableUnifiedAiApi: enableUnifiedAiApi
+    gatewayAccessContracts: gatewayAccessContracts
   }
   dependsOn: [
     apiopenAiApiClientNamedValue
@@ -788,7 +824,9 @@ module policyFragments './policy-fragments.bicep' = {
     jwtTenantIdNamedValue
     jwtAppRegistrationIdNamedValue
     jwtIssuerNamedValue
+    jwtIssuerV1NamedValue
     jwtOpenIdConfigUrlNamedValue
+    jwtOpenIdConfigUrlV1NamedValue
   ]
 }
 
@@ -977,8 +1015,14 @@ resource apimDiagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-0
   }
 }
 
+// Reference MCP examples do not enforce the normal contract boundary.
+// Refuse to publish them on an Entra-only gateway until individually hardened.
+var deployMcpSamples = isMCPSampleDeployed && entraAuth
+  ? fail('Sample MCP APIs are not Access Contract protected. Disable isMCPSampleDeployed when entraAuth is true.')
+  : isMCPSampleDeployed
+
 // Sample MCP resources
-module weatherAPI './api.bicep' = if (isMCPSampleDeployed) {
+module weatherAPI './api.bicep' = if (deployMcpSamples) {
   name: 'weather-api'
   params: {
     serviceName: apimService.name
@@ -998,7 +1042,7 @@ module weatherAPI './api.bicep' = if (isMCPSampleDeployed) {
   ]
 }
 
-module weatherMCP './mcp-from-api.bicep' = if (isMCPSampleDeployed) {
+module weatherMCP './mcp-from-api.bicep' = if (deployMcpSamples) {
   name: 'weather-mcp'
   params: {
     apimServiceName: apimService.name
@@ -1016,7 +1060,7 @@ module weatherMCP './mcp-from-api.bicep' = if (isMCPSampleDeployed) {
   ]
 }
 
-module microsoftLearnMCPServer 'mcp-existing.bicep' = if (isMCPSampleDeployed) {
+module microsoftLearnMCPServer 'mcp-existing.bicep' = if (deployMcpSamples) {
   name: 'microsoftLearnMCPServer'
   params: {
     apimServiceName: apimService.name

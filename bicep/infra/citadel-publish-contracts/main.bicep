@@ -22,6 +22,10 @@ targetScope = 'subscription'
 // PARAMETERS
 // ============================================================================
 
+@allowed(['entra', 'subscription'])
+@description('Use Entra ID JWT (default) or legacy APIM subscription keys for published assets.')
+param authMode string = 'entra'
+
 @description('APIM resource coordinates: { subscriptionId, resourceGroupName, name }')
 param apim object
 
@@ -83,6 +87,8 @@ param apiCenter object = {
   sourceApiName?: string
   operationNames?: [ string ]
   forwardSubscriptionKeyToSource?: bool    // opt-in: forward caller key to a subscription-protected source API (default false)
+  sourceManagedIdentityAudience?: string // required for Entra MCP-from-API source calls
+  sourceManagedIdentityClientId?: string
   sourceSubscriptionKeyHeaderName?: string // custom header the source API reads the forwarded key from (default 'x-mcp-sub-key')
 
   // mcp-existing
@@ -191,6 +197,7 @@ module mcpFromApi 'modules/publishMcpFromApi.bicep' = [for (asset, i) in publish
   scope: apimRg
   params: {
     apimServiceName: apim.name
+    authMode: authMode
     appInsightsLoggerName: appInsightsLoggerName
     sourceApiName: asset.sourceApiName
     operationNames: asset.operationNames
@@ -202,6 +209,8 @@ module mcpFromApi 'modules/publishMcpFromApi.bicep' = [for (asset, i) in publish
     subscriptionKeyHeaderName: asset.?subscriptionKeyHeaderName ?? 'api-key'
     forwardSubscriptionKeyToSource: asset.?forwardSubscriptionKeyToSource ?? false
     sourceSubscriptionKeyHeaderName: asset.?sourceSubscriptionKeyHeaderName ?? 'x-mcp-sub-key'
+    sourceManagedIdentityAudience: asset.?sourceManagedIdentityAudience ?? ''
+    sourceManagedIdentityClientId: asset.?sourceManagedIdentityClientId ?? managedIdentityClientId
     mcpPolicyXml: asset.?policyXml ?? ''
   }
   dependsOn: [

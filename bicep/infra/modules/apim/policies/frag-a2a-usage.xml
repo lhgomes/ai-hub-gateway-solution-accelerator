@@ -4,13 +4,13 @@
          App aggregates these customMetrics into the agent-usage-container Cosmos collection. -->
     <emit-metric name="A2ARequests" value="1" namespace="a2a-usage">
         <!-- Access contract product (empty until the asset is governed by an access contract in phase 2) -->
-        <dimension name="productName" value="@(context.Product?.Name?.ToString() ?? "Unassigned")" />
+        <dimension name="productName" value="@(context.Variables.GetValueOrDefault<string>("contractId", context.Product?.Name ?? "Unassigned"))" />
         <!-- Agent name (reuses the LLM 'deploymentName' dimension so dashboards align) -->
         <dimension name="deploymentName" value="@(context.Api?.Name?.ToString() ?? "unknown-agent")" />
         <!-- Backend serving the agent (set by the baseline policy; falls back to the API name) -->
         <dimension name="backendId" value="@((string)context.Variables.GetValueOrDefault<string>("publishedBackendId", context.Api?.Name ?? "NA"))" />
         <!-- Calling application / subscription id -->
-        <dimension name="appId" value="@(context.Subscription?.Id ?? "anonymous")" />
+        <dimension name="appId" value="@(context.Variables.GetValueOrDefault<string>("callerId", context.Subscription?.Id ?? "anonymous"))" />
         <!-- customDimension1 = asset type, customDimension2 = operation (per publish-contract convention) -->
         <dimension name="customDimension1" value="a2a" />
         <dimension name="customDimension2" value="@(context.Operation?.Name?.ToString() ?? "NA")" />

@@ -156,10 +156,10 @@ var backendPoolsCode = empty(aliasPoolsCode) ? backendPoolsBaseCode : '${backend
 
 // Load policy fragment templates
 var setBackendPoolsFragmentTemplate = loadTextContent('./policies/frag-set-backend-pools.xml')
-var setBackendAuthorizationFragmentXml = loadTextContent('./policies/frag-set-backend-authorization.xml')
+var setBackendAuthorizationFragmentXml = loadTextContent('../../modules/apim/policies/frag-set-backend-authorization.xml')
 var setTargetBackendPoolFragmentXml = loadTextContent('./policies/frag-set-target-backend-pool.xml')
 var setLlmRequestedModelFragmentXml = loadTextContent('./policies/frag-set-llm-requested-model.xml')
-var setLlmUsageFragmentXml = loadTextContent('./policies/frag-set-llm-usage.xml')
+var setLlmUsageFragmentXml = loadTextContent('../../modules/apim/policies/frag-set-llm-usage.xml')
 var getAvailableModelsFragmentTemplate = loadTextContent('./policies/frag-get-available-models.xml')
 
 // Inject generated backend pools code into template
@@ -419,7 +419,7 @@ resource validateModelAccessFragment 'Microsoft.ApiManagement/service/policyFrag
   properties: {
     description: 'Validates that the requested model is in the allowed models list for the product'
     format: 'rawxml'
-    value: loadTextContent('./policies/frag-validate-model-access.xml')
+    value: loadTextContent('../../modules/apim/policies/frag-validate-model-access.xml')
   }
 }
 
@@ -432,7 +432,7 @@ resource responsesIdSecurityFragment 'Microsoft.ApiManagement/service/policyFrag
   properties: {
     description: 'Inbound: validates response_id ownership and hydrates routing for /responses operations'
     format: 'rawxml'
-    value: loadTextContent('./policies/frag-responses-id-security.xml')
+    value: loadTextContent('../../modules/apim/policies/frag-responses-id-security.xml')
   }
 }
 
@@ -445,7 +445,7 @@ resource responsesIdCacheStoreFragment 'Microsoft.ApiManagement/service/policyFr
   properties: {
     description: 'Outbound: caches response_id ownership for newly created Responses API objects'
     format: 'rawxml'
-    value: loadTextContent('./policies/frag-responses-id-cache-store.xml')
+    value: loadTextContent('../../modules/apim/policies/frag-responses-id-cache-store.xml')
   }
 }
 

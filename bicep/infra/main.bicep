@@ -278,6 +278,42 @@ param enableOpenAIRealtime bool = true
 @description('Enable Microsoft Entra ID authentication for API Management.')
 param entraAuth bool = true
 
+// Enforce the public contract shape at ARM deployment time; the manifest validator
+// additionally checks GUIDs, uniqueness and cross-contract ambiguity before deployment.
+@minLength(1)
+type ContractString = string
+
+@minValue(1)
+type ContractPositiveInt = int
+
+@sealed()
+type GatewayAccessContract = {
+  id: ContractString
+  callers: ContractString[]
+  apis: ContractString[]
+  allowedModels: ContractString[]?
+  allowedBackendPools: ContractString[]?
+  tokensPerMinute: ContractPositiveInt?
+  tokenQuota: ContractPositiveInt?
+  tokenQuotaPeriod: 'Hourly' | 'Daily' | 'Weekly' | 'Monthly' | 'Yearly'?
+  requestsPerMinute: ContractPositiveInt?
+  requestQuota: ContractPositiveInt?
+  quotaPeriodSeconds: ContractPositiveInt?
+  customDimension1: ContractString?
+  customDimension2: ContractString?
+  alertsEnabled: bool?
+  alertOnThrottling: bool?
+  alertOnQuotaExceeded: bool?
+  alertOnBackendFailure: bool?
+  alertOnAuthFailure: bool?
+  alertOnContentSafety: bool?
+  alertOnPiiFailure: bool?
+  enableResponseHeaders: bool?
+}
+
+@description('Complete desired-state JWT Access Contract registry for the gateway. Each entry: { id, callers: [service-principal-object-ID], apis: [API-ID], allowedModels: [model], allowedBackendPools: [pool], tokensPerMinute, tokenQuota, tokenQuotaPeriod, requestsPerMinute, requestQuota, quotaPeriodSeconds }. A net-new deployment must supply all grants; empty registry denies all.')
+param gatewayAccessContracts GatewayAccessContract[] = []
+
 @description('Enable API Center for API governance and discovery.')
 param enableAPICenter bool = true
 
@@ -650,6 +686,7 @@ module resources './resources.bicep' = {
     enableAIGatewayPiiRedaction: enableAIGatewayPiiRedaction
     enableOpenAIRealtime: enableOpenAIRealtime
     entraAuth: entraAuth
+    gatewayAccessContracts: gatewayAccessContracts
     enableAPICenter: enableAPICenter
     enableManagedRedis: enableManagedRedis
     azureMonitorLogSettings: azureMonitorLogSettings

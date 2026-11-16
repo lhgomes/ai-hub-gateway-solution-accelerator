@@ -9,6 +9,9 @@
 //    PARAMETERS
 // ------------------
 
+@allowed(['entra', 'subscription'])
+param authMode string = 'subscription'
+
 param apimServiceName string
 param appInsightsLoggerName string = 'appinsights-logger'
 
@@ -45,7 +48,8 @@ param mcpPolicyXml string = ''
 // ------------------
 
 var defaultPolicyXml = loadTextContent('../policies/baseline-mcp-policy.xml')
-var effectivePolicyXml = empty(mcpPolicyXml) ? defaultPolicyXml : mcpPolicyXml
+// Do not permit a custom asset policy to bypass required JWT authentication.
+var effectivePolicyXml = authMode == 'entra' ? defaultPolicyXml : (empty(mcpPolicyXml) ? defaultPolicyXml : mcpPolicyXml)
 
 // Query-string key name mirrors the header: the APIM-native header uses the 'subscription-key' query param,
 // the LLM-style 'api-key' header uses an 'api-key' query param.
@@ -66,7 +70,7 @@ resource mcp 'Microsoft.ApiManagement/service/apis@2024-06-01-preview' = {
     type: 'mcp'
     displayName: mcpDisplayName
     description: mcpDescription
-    subscriptionRequired: mcpSubscriptionRequired
+    subscriptionRequired: authMode == 'subscription' ? mcpSubscriptionRequired : false
     path: mcpPath
     protocols: mcpProtocols
     subscriptionKeyParameterNames: {
